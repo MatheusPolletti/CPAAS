@@ -4,3 +4,4 @@ pub mod prelude;
 
 pub mod sms;
 pub mod users;
+pub mod whatsapp;

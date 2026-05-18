@@ -14,7 +14,6 @@ pub struct TwilioWebhook {
     pub body: String,
 }
 
-// A representação de uma mensagem individual na linha do tempo
 #[derive(serde::Serialize)]
 pub struct ChatMessageResponse {
     pub id: i32,
@@ -24,15 +23,26 @@ pub struct ChatMessageResponse {
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
 }
 
-// A resposta para a rota que lista os contatos únicos
 #[derive(serde::Serialize)]
-pub struct ContactListResponse {
-    pub contacts: Vec<String>,
+pub struct ContactPreview {
+    pub contact_number: String,
+    pub last_message_body: Option<String>,
+    pub last_message_date: chrono::DateTime<chrono::FixedOffset>,
+    pub direction: String,
 }
 
-// A resposta para a rota que abre a conversa com alguém
+#[derive(serde::Serialize)]
+pub struct ContactListResponse {
+    pub contacts: Vec<ContactPreview>,
+}
+
 #[derive(serde::Serialize)]
 pub struct ChatThreadResponse {
     pub contact: String,
     pub messages: Vec<ChatMessageResponse>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct PaginationQuery {
+    pub page: Option<u64>,
 }

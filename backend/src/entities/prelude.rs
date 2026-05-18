@@ -2,3 +2,4 @@
 
 pub use super::sms::Entity as Sms;
 pub use super::users::Entity as Users;
+pub use super::whatsapp::Entity as Whatsapp;

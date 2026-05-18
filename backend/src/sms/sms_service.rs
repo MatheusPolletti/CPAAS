@@ -1,4 +1,5 @@
 use crate::entities::sms;
+use crate::sms::sms_dto::ContactPreview;
 use reqwest::Client;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection};
 use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
@@ -72,6 +73,8 @@ impl SmsService {
     }
 
     pub async fn save_incoming_sms(&self, from: &str, body: &str) -> Result<(), String> {
+        println!("Recebido {}", body);
+
         let incoming_log = sms::ActiveModel {
             direction: Set("inbound".to_string()),
             from_number: Set(from.to_string()),
@@ -90,7 +93,7 @@ impl SmsService {
         Ok(())
     }
 
-    pub async fn get_unique_contacts(&self) -> Result<Vec<String>, String> {
+    pub async fn get_unique_contacts(&self) -> Result<Vec<ContactPreview>, String> {
         let outbound_contacts: Vec<String> = sms::Entity::find()
             .filter(sms::Column::Direction.eq("outbound"))
             .select_only()
@@ -113,23 +116,56 @@ impl SmsService {
         unique_numbers.extend(outbound_contacts);
         unique_numbers.extend(inbound_contacts);
 
-        let mut contacts: Vec<String> = unique_numbers.into_iter().collect();
-        contacts.sort();
+        let mut inbox: Vec<ContactPreview> = Vec::new();
 
-        Ok(contacts)
+        for number in unique_numbers {
+            let condition = Condition::any()
+                .add(sms::Column::FromNumber.eq(&number))
+                .add(sms::Column::ToNumber.eq(&number));
+
+            let last_msg_option = sms::Entity::find()
+                .filter(condition)
+                .order_by_desc(sms::Column::CreatedAt)
+                .one(&self.db)
+                .await
+                .map_err(|e| format!("Erro no banco: {:?}", e))?;
+
+            if let Some(msg) = last_msg_option {
+                inbox.push(ContactPreview {
+                    contact_number: number,
+                    last_message_body: msg.body,
+                    last_message_date: msg.created_at,
+                    direction: msg.direction,
+                });
+            }
+        }
+
+        inbox.sort_by(|a, b| b.last_message_date.cmp(&a.last_message_date));
+
+        Ok(inbox)
     }
 
-    pub async fn get_chat_thread(&self, contact_number: &str) -> Result<Vec<sms::Model>, String> {
+    pub async fn get_chat_thread(
+        &self,
+        contact_number: &str,
+        page: u64,
+    ) -> Result<Vec<sms::Model>, String> {
         let condition = Condition::any()
             .add(sms::Column::FromNumber.eq(contact_number))
             .add(sms::Column::ToNumber.eq(contact_number));
 
-        let messages = sms::Entity::find()
+        let page_size = 10;
+
+        let mut messages = sms::Entity::find()
             .filter(condition)
-            .order_by_asc(sms::Column::CreatedAt)
+            .order_by_desc(sms::Column::CreatedAt)
+            .limit(page_size)
+            .offset(page * page_size)
             .all(&self.db)
             .await
             .map_err(|e| format!("Erro no banco: {:?}", e))?;
+
+        messages.reverse();
 
         Ok(messages)
     }

@@ -9,6 +9,7 @@ pub struct Config {
     pub twilio_account_sid: String,
     pub twilio_auth_token: String,
     pub twilio_phone_number: String,
+    pub twilio_whatsapp_number: String,
 }
 
 impl Config {
@@ -27,6 +28,8 @@ impl Config {
             twilio_auth_token: env::var("TWILIO_AUTH_TOKEN")
                 .expect("Erro ao pegar dados da conta Twilio"),
             twilio_phone_number: env::var("TWILIO_PHONE_NUMBER").expect("Erro ao pegar número"),
+            twilio_whatsapp_number: env::var("TWILIO_WHATSAPP_NUMBER")
+                .expect("Erro ao pegar número de whatsapp"),
         }
     }
 }

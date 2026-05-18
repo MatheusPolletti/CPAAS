@@ -2,6 +2,7 @@ mod auth;
 mod config;
 mod database_service;
 mod sms;
+mod whatsapp;
 
 pub mod entities;
 
@@ -14,7 +15,8 @@ use tokio::net::TcpListener;
 use crate::{
     auth::{auth_controller, auth_service::AuthService},
     database_service::connect_db,
-    sms::sms_service::SmsService,
+    sms::{sms_controller, sms_service::SmsService},
+    whatsapp::{whatsapp_controller, whatsapp_service::WhatsappService},
 };
 use axum::http::{Method, header};
 use tower_http::cors::CorsLayer;
@@ -23,6 +25,7 @@ use tower_http::cors::CorsLayer;
 pub struct AppState {
     pub auth_service: Arc<AuthService>,
     pub sms_service: Arc<SmsService>,
+    pub whatsapp_service: Arc<WhatsappService>,
 }
 
 impl FromRef<AppState> for Arc<AuthService> {
@@ -34,6 +37,12 @@ impl FromRef<AppState> for Arc<AuthService> {
 impl FromRef<AppState> for Arc<SmsService> {
     fn from_ref(state: &AppState) -> Self {
         state.sms_service.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<WhatsappService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.whatsapp_service.clone()
     }
 }
 
@@ -49,12 +58,20 @@ async fn main() {
         config.twilio_account_sid.clone(),
         config.twilio_auth_token.clone(),
         config.twilio_phone_number.clone(),
+        _connection.clone(),
+    );
+
+    let whatsapp_service = WhatsappService::new(
+        config.twilio_account_sid.clone(),
+        config.twilio_auth_token.clone(),
+        config.twilio_whatsapp_number.clone(),
         _connection,
     );
 
     let app_state = AppState {
         auth_service: Arc::new(auth_service),
         sms_service: Arc::new(sms_service),
+        whatsapp_service: Arc::new(whatsapp_service),
     };
 
     let frontend_origin = config
@@ -69,7 +86,8 @@ async fn main() {
 
     let app = Router::new()
         .nest("/auth", auth_controller::router())
-        .nest("/sms", crate::sms::sms_controller::router())
+        .nest("/sms", sms_controller::router())
+        .nest("/whatsapp", whatsapp_controller::router())
         .with_state(app_state)
         .layer(cors);
 

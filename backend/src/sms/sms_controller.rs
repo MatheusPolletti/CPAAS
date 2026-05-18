@@ -1,6 +1,6 @@
 use axum::{
     Form, Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -11,15 +11,15 @@ use crate::{
     auth::auth_extractor::AuthenticatedUser,
     sms::{
         sms_dto::{
-            ChatMessageResponse, ChatThreadResponse, ContactListResponse, SendSmsRequest,
-            TwilioWebhook,
+            ChatMessageResponse, ChatThreadResponse, ContactListResponse, PaginationQuery,
+            SendSmsRequest, TwilioWebhook,
         },
         sms_service::SmsService,
     },
 };
 
 pub async fn send_sms_handler(
-    user: AuthenticatedUser,
+    _user: AuthenticatedUser,
     State(sms_service): State<Arc<SmsService>>,
     Json(payload): Json<SendSmsRequest>,
 ) -> impl IntoResponse {
@@ -33,6 +33,8 @@ pub async fn receive_sms_handler(
     State(sms_service): State<Arc<SmsService>>,
     Form(payload): Form<TwilioWebhook>,
 ) -> impl IntoResponse {
+    println!("Recebido");
+
     match sms_service
         .save_incoming_sms(&payload.from, &payload.body)
         .await
@@ -53,6 +55,7 @@ pub async fn receive_sms_handler(
 }
 
 pub async fn list_contacts_handler(
+    _user: AuthenticatedUser,
     State(sms_service): State<Arc<SmsService>>,
 ) -> impl IntoResponse {
     match sms_service.get_unique_contacts().await {
@@ -64,14 +67,16 @@ pub async fn list_contacts_handler(
     }
 }
 
-// NOVO: Abre a conversa
 pub async fn get_chat_handler(
+    _user: AuthenticatedUser,
     State(sms_service): State<Arc<SmsService>>,
-    Path(contact_number): Path<String>, // Extrai o número que vier na URL
+    Path(contact_number): Path<String>,
+    Query(pagination): Query<PaginationQuery>,
 ) -> impl IntoResponse {
-    match sms_service.get_chat_thread(&contact_number).await {
+    let page = pagination.page.unwrap_or(0);
+
+    match sms_service.get_chat_thread(&contact_number, page).await {
         Ok(models) => {
-            // Mapeamos os modelos do SeaORM para a struct limpa do DTO
             let messages = models
                 .into_iter()
                 .map(|m| ChatMessageResponse {
