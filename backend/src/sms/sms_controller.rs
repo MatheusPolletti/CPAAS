@@ -9,10 +9,11 @@ use std::sync::Arc;
 
 use crate::{
     auth::auth_extractor::AuthenticatedUser,
+    dto::PaginationQuery,
     sms::{
         sms_dto::{
-            ChatMessageResponse, ChatThreadResponse, ContactListResponse, PaginationQuery,
-            SendSmsRequest, TwilioWebhook,
+            ChatMessageResponse, ChatThreadResponse, ContactListResponse, SendSmsRequest,
+            TwilioWebhook,
         },
         sms_service::SmsService,
     },

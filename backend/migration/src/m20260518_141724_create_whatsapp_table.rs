@@ -24,6 +24,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Whatsapp::Body).string())
                     .col(ColumnDef::new(Whatsapp::Status).string().not_null())
                     .col(ColumnDef::new(Whatsapp::SenderName).string())
+                    .col(ColumnDef::new(Whatsapp::TwilioSid).string())
                     .col(
                         ColumnDef::new(Whatsapp::CreatedAt)
                             .timestamp_with_time_zone()
@@ -60,6 +61,7 @@ enum Whatsapp {
     Body,
     Status,
     SenderName,
+    TwilioSid,
     CreatedAt,
     UserId,
 }

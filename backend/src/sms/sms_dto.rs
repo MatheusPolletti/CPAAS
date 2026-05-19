@@ -41,8 +41,3 @@ pub struct ChatThreadResponse {
     pub contact: String,
     pub messages: Vec<ChatMessageResponse>,
 }
-
-#[derive(serde::Deserialize)]
-pub struct PaginationQuery {
-    pub page: Option<u64>,
-}

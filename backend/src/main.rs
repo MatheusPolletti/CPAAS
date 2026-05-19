@@ -1,6 +1,8 @@
 mod auth;
+mod call;
 mod config;
 mod database_service;
+mod dto;
 mod sms;
 mod whatsapp;
 
@@ -14,6 +16,7 @@ use tokio::net::TcpListener;
 
 use crate::{
     auth::{auth_controller, auth_service::AuthService},
+    call::{call_controller, call_service::CallService},
     database_service::connect_db,
     sms::{sms_controller, sms_service::SmsService},
     whatsapp::{whatsapp_controller, whatsapp_service::WhatsappService},
@@ -26,6 +29,7 @@ pub struct AppState {
     pub auth_service: Arc<AuthService>,
     pub sms_service: Arc<SmsService>,
     pub whatsapp_service: Arc<WhatsappService>,
+    pub call_service: Arc<CallService>,
 }
 
 impl FromRef<AppState> for Arc<AuthService> {
@@ -43,6 +47,12 @@ impl FromRef<AppState> for Arc<SmsService> {
 impl FromRef<AppState> for Arc<WhatsappService> {
     fn from_ref(state: &AppState) -> Self {
         state.whatsapp_service.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<CallService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.call_service.clone()
     }
 }
 
@@ -65,6 +75,13 @@ async fn main() {
         config.twilio_account_sid.clone(),
         config.twilio_auth_token.clone(),
         config.twilio_whatsapp_number.clone(),
+        _connection.clone(),
+    );
+
+    let call_service = CallService::new(
+        config.twilio_account_sid.clone(),
+        config.twilio_auth_token.clone(),
+        config.twilio_phone_number.clone(),
         _connection,
     );
 
@@ -72,6 +89,7 @@ async fn main() {
         auth_service: Arc::new(auth_service),
         sms_service: Arc::new(sms_service),
         whatsapp_service: Arc::new(whatsapp_service),
+        call_service: Arc::new(call_service),
     };
 
     let frontend_origin = config
@@ -88,6 +106,7 @@ async fn main() {
         .nest("/auth", auth_controller::router())
         .nest("/sms", sms_controller::router())
         .nest("/whatsapp", whatsapp_controller::router())
+        .nest("/call", call_controller::router())
         .with_state(app_state)
         .layer(cors);
 

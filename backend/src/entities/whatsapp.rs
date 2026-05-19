@@ -13,6 +13,7 @@ pub struct Model {
     pub body: Option<String>,
     pub status: String,
     pub sender_name: Option<String>,
+    pub twilio_sid: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub user_id: Option<i32>,
 }
