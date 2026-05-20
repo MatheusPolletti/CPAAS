@@ -54,3 +54,47 @@ pub struct RegisterSuccessMessage {
     pub success: bool,
     pub message: String,
 }
+
+#[derive(Serialize)]
+pub struct UserProfile {
+    pub id: i32,
+    pub username: String,
+    pub email: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendToken {
+    pub access_token: String,
+    pub expires_in: i64,
+    pub refresh_token: String,
+    pub refresh_expires_in: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginResponseData {
+    pub user: UserProfile,
+    pub backend_token: BackendToken,
+}
+
+#[derive(Serialize)]
+pub struct LoginResponseWrapper {
+    pub success: bool,
+    pub data: LoginResponseData,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshResponseData {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: i64,
+    pub refresh_expires_in: i64,
+}
+
+#[derive(Serialize)]
+pub struct RefreshResponseWrapper {
+    pub success: bool,
+    pub data: RefreshResponseData,
+}

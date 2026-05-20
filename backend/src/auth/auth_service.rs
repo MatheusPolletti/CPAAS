@@ -37,7 +37,7 @@ impl AuthService {
         .expect("Erro ao configurar Argon2")
     }
 
-    pub async fn refresh_session(&self, token: &str) -> Result<(String, String), String> {
+    pub async fn refresh_session(&self, token: &str) -> Result<(String, String, i64, i64), String> {
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.pepper.as_bytes()),
@@ -62,7 +62,7 @@ impl AuthService {
                 return Err("Token de refresh revogado ou substituído".to_string());
             }
 
-            let (new_access, new_refresh) = self.generate_tokens(user.id)?;
+            let (new_access, new_refresh, new_exp, new_ref_exp) = self.generate_tokens(user.id)?;
 
             let mut user_active: users::ActiveModel = user.into_active_model();
             user_active.refresh_token = Set(Some(new_refresh.clone()));
@@ -72,7 +72,7 @@ impl AuthService {
                 .await
                 .map_err(|e| format!("Erro ao salvar novo token: {:?}", e))?;
 
-            Ok((new_access, new_refresh))
+            Ok((new_access, new_refresh, new_exp, new_ref_exp))
         } else {
             Err("Usuário não encontrado".to_string())
         }
@@ -93,7 +93,7 @@ impl AuthService {
         &self,
         email: &str,
         password: &str,
-    ) -> Result<(UserModel, String, String), String> {
+    ) -> Result<(UserModel, String, String, i64, i64), String> {
         let user_option = User::find()
             .filter(users::Column::Email.eq(email))
             .one(&self.db)
@@ -102,7 +102,8 @@ impl AuthService {
 
         if let Some(user) = user_option {
             if self.verify_password(password, &user.password) {
-                let (access, refresh) = self.generate_tokens(user.id)?;
+                let (access, refresh, expires_in, refresh_expires_in) =
+                    self.generate_tokens(user.id)?;
 
                 let mut user_active: users::ActiveModel = user.into_active_model();
 
@@ -113,7 +114,13 @@ impl AuthService {
                     .await
                     .map_err(|e| format!("Erro ao salvar token: {:?}", e))?;
 
-                Ok((updated_user, access, refresh))
+                Ok((
+                    updated_user,
+                    access,
+                    refresh,
+                    expires_in,
+                    refresh_expires_in,
+                ))
             } else {
                 Err("Senha incorreta".to_string())
             }
@@ -148,21 +155,28 @@ impl AuthService {
         new_user.insert(&self.db).await
     }
 
-    pub fn generate_tokens(&self, user_id: i32) -> Result<(String, String), String> {
+    pub fn generate_tokens(&self, user_id: i32) -> Result<(String, String, i64, i64), String> {
         let now = Utc::now();
 
-        let access_exp = (now + Duration::minutes(15)).timestamp() as usize;
+        // 15 minutos para o Access Token
+        let access_duration = Duration::minutes(15);
+        let access_exp_time = now + access_duration;
+
+        // 7 dias para o Refresh Token
+        let refresh_duration = Duration::days(7);
+        let refresh_exp_time = now + refresh_duration;
+
+        // Claims para o JWT (o campo 'exp' do JWT exige segundos)
         let access_claims = Claims {
             sub: user_id,
-            exp: access_exp,
+            exp: access_exp_time.timestamp() as usize,
             iat: now.timestamp() as usize,
             token_type: "access".to_string(),
         };
 
-        let refresh_exp = (now + Duration::days(7)).timestamp() as usize;
         let refresh_claims = Claims {
             sub: user_id,
-            exp: refresh_exp,
+            exp: refresh_exp_time.timestamp() as usize,
             iat: now.timestamp() as usize,
             token_type: "refresh".to_string(),
         };
@@ -175,7 +189,16 @@ impl AuthService {
         let refresh_token = encode(&Header::default(), &refresh_claims, &encoding_key)
             .map_err(|e| format!("Falha ao gerar refresh token: {}", e))?;
 
-        Ok((access_token, refresh_token))
+        // Convertemos a expiração para milissegundos para o Front-end
+        let expires_in_ms = access_exp_time.timestamp_millis();
+        let refresh_expires_in_ms = refresh_exp_time.timestamp_millis();
+
+        Ok((
+            access_token,
+            refresh_token,
+            expires_in_ms,
+            refresh_expires_in_ms,
+        ))
     }
 
     pub async fn logout(&self, user_id: i32) -> Result<(), String> {

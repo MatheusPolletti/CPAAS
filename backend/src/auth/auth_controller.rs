@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use crate::auth::{
     auth_dto::{
-        LoginRequest, LoginResponse, RefreshRequest, RefreshResponse, RegisterRequest,
-        RegisterSuccessMessage, UserResponse,
+        BackendToken, LoginRequest, LoginResponseData, LoginResponseWrapper, RefreshRequest,
+        RefreshResponseData, RefreshResponseWrapper, RegisterRequest, RegisterSuccessMessage,
+        UserProfile,
     },
     auth_extractor::AuthenticatedUser,
     auth_service::AuthService,
@@ -40,16 +41,24 @@ pub async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> impl IntoResponse {
     match auth_service.login(&payload.email, &payload.password).await {
-        Ok((user, access_token, refresh_token)) => {
-            let response = LoginResponse {
-                user: UserResponse {
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
+        Ok((user, access_token, refresh_token, expires_in, refresh_expires_in)) => {
+            let response = LoginResponseWrapper {
+                success: true,
+                data: LoginResponseData {
+                    user: UserProfile {
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                    },
+                    backend_token: BackendToken {
+                        access_token,
+                        expires_in,
+                        refresh_token,
+                        refresh_expires_in,
+                    },
                 },
-                access_token,
-                refresh_token,
             };
+
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(message) => (StatusCode::UNAUTHORIZED, message).into_response(),
@@ -61,14 +70,19 @@ pub async fn refresh(
     Json(payload): Json<RefreshRequest>,
 ) -> impl IntoResponse {
     match auth_service.refresh_session(&payload.refresh_token).await {
-        Ok((access_token, refresh_token)) => {
-            let response = RefreshResponse {
-                access_token,
-                refresh_token,
+        Ok((access_token, refresh_token, expires_in, refresh_expires_in)) => {
+            let response = RefreshResponseWrapper {
+                success: true,
+                data: RefreshResponseData {
+                    access_token,
+                    refresh_token,
+                    expires_in,
+                    refresh_expires_in,
+                },
             };
             (StatusCode::OK, Json(response)).into_response()
         }
-        Err(message) => (StatusCode::UNAUTHORIZED, message).into_response(),
+        Err(e) => (StatusCode::UNAUTHORIZED, e).into_response(),
     }
 }
 

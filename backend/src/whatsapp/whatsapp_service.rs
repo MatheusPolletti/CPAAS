@@ -66,6 +66,7 @@ impl WhatsappService {
                 to_number: Set(to.clone()),
                 body: Set(Some(message.clone())),
                 status: Set("queued".to_string()),
+                sender_name: Set(Some("Você".to_string())),
                 twilio_sid: Set(twilio_sid),
                 user_id: Set(None),
                 ..Default::default()
