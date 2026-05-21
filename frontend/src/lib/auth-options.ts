@@ -1,4 +1,4 @@
-import { AuthOptions } from "next-auth";
+import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import axios from "axios";
 import { JWT } from "next-auth/jwt";
@@ -44,7 +44,7 @@ async function refreshToken(token: JWT): Promise<JWT> {
   return pending;
 }
 
-export const authOptions: AuthOptions = {
+export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/login",
     signOut: "/login",
@@ -69,14 +69,14 @@ export const authOptions: AuthOptions = {
 
           if (response.status === 200) {
             return {
-              id: response.data.user.id,
-              name: response.data.user.username,
-              email: response.data.user.email,
-              accessToken: response.data.backendToken.accessToken,
-              refreshToken: response.data.backendToken.refreshToken,
-              expiresIn: response.data.backendToken.expiresIn,
+              id: response.data.data.user.id,
+              name: response.data.data.user.username,
+              email: response.data.data.user.email,
+              accessToken: response.data.data.backendToken.accessToken,
+              refreshToken: response.data.data.backendToken.refreshToken,
+              expiresIn: response.data.data.backendToken.expiresIn,
               refreshExpiresIn:
-                response.data.backendToken.refreshExpiresIn,
+                response.data.data.backendToken.refreshExpiresIn,
             };
           }
 
@@ -131,9 +131,6 @@ export const authOptions: AuthOptions = {
         id: token.id,
         name: token.name as string,
         email: token.email as string,
-        roles: token.roles,
-        permissions: token.permissions,
-        isTechnician: token.isTechnician,
         accessToken: token.accessToken as string,
         refreshToken: token.refreshToken as string,
         expiresIn: token.expiresIn as number,

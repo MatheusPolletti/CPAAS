@@ -6,9 +6,6 @@ declare module "next-auth" {
       id: number;
       name: string;
       email: string;
-      roles: string[];
-      permissions: string[];
-      isTechnician: boolean;
       accessToken: string;
       refreshToken: string;
       expiresIn?: number;

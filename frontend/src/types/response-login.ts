@@ -11,7 +11,12 @@ export interface BackendToken {
   refreshExpiresIn: number;
 }
 
+export interface LoginResponseData {
+  user: UserProfile;
+  backendToken: BackendToken;
+}
+
 export interface LoginResponse {
-    user: UserProfile;
-    backendToken: BackendToken;
+  success: boolean;
+  data: LoginResponseData;
 }

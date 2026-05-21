@@ -6,17 +6,17 @@ import { Input } from "@/components/ui/input";
 import { SyntheticEvent, useRef, useState } from "react";
 import { ArrowRight, Eye, EyeClosed } from "lucide-react";
 import { toast } from "sonner";
-import { SignIn } from "@/lib/auth";
+import { SignUp } from "@/lib/auth";
 import { ErrorType } from "@/types/error-type";
 import { motion } from "framer-motion";
 import Link from "next/link";
 
-export function LoginForm({
+export function RegisterForm({
   className,
   ...props
 }: React.ComponentProps<"form">) {
   const [showPassword, setShowPassword] = useState(false);
-  const [logingIn, setLogingIn] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<ErrorType>({ status: false });
   const passwordRef = useRef<HTMLInputElement>(null);
 
@@ -32,7 +32,7 @@ export function LoginForm({
 
   const handleSubmit = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLogingIn(true);
+    setRegistering(true);
 
     try {
       setError({ status: false });
@@ -40,18 +40,18 @@ export function LoginForm({
       const form = e.currentTarget as HTMLFormElement;
       const formData = new FormData(form);
 
-      const response = await SignIn(
+      const response = await SignUp(
+        formData.get("user-name") as string,
         formData.get("user-identifier") as string,
         formData.get("user-secret") as string,
       );
 
       if (response?.status) {
-        window.location.href = "/";
-
+        window.location.href = "/login";
         return;
       }
 
-      if (response?.email || response?.password) {
+      if (response?.name || response?.email || response?.password) {
         setError(response);
         return;
       }
@@ -62,6 +62,7 @@ export function LoginForm({
         if (
           msg.includes("indisponível") ||
           msg.includes("conexão") ||
+          msg.includes("conexao") ||
           msg.includes("servidor") ||
           msg.includes("unknown")
         ) {
@@ -69,25 +70,23 @@ export function LoginForm({
         }
 
         if (
+          msg.includes("nome") ||
           msg.includes("usuário") ||
-          msg.includes("email") ||
-          msg.includes("e-mail")
+          msg.includes("usuario")
         ) {
+          setError({ status: false, name: [response.error] });
+        } else if (msg.includes("email") || msg.includes("e-mail")) {
           setError({ status: false, email: [response.error] });
-        } else if (
-          msg.includes("senha") ||
-          msg.includes("password") ||
-          msg.includes("credenciais")
-        ) {
+        } else if (msg.includes("senha") || msg.includes("password")) {
           setError({ status: false, password: [response.error] });
         } else {
           throw new Error(response.error);
         }
         return;
       }
-    } catch (error) {
-      if (error instanceof Error) {
-        toast.error(error.message, {
+    } catch (err) {
+      if (err instanceof Error) {
+        toast.error(err.message, {
           position: "top-center",
         });
       } else {
@@ -96,7 +95,7 @@ export function LoginForm({
         });
       }
     } finally {
-      setLogingIn(false);
+      setRegistering(false);
     }
   };
 
@@ -109,7 +108,7 @@ export function LoginForm({
           transition={{ duration: 0.6, delay: 0.2 }}
           className="text-lg font-semibold text-black mt-2"
         >
-          Faça login para continuar
+          Crie sua conta para continuar
         </motion.p>
       </div>
 
@@ -143,10 +142,63 @@ export function LoginForm({
             className="hidden"
             readOnly
           />
+
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5, delay: 0.4 }}
+            className="flex flex-col gap-1.5"
+          >
+            <label
+              htmlFor="user-name"
+              className="text-sm font-medium text-foreground"
+            >
+              Nome
+            </label>
+            <Input
+              id="user-name"
+              name="user-name"
+              type="text"
+              placeholder="Seu nome"
+              required
+              autoComplete="off"
+              readOnly
+              onFocus={(e) => e.currentTarget.removeAttribute("readonly")}
+              data-lpignore="true"
+              data-form-type="other"
+              data-1p-ignore
+              className={`h-12 rounded-xl bg-muted border-border transition-colors duration-200
+								focus-visible:ring-0 focus-visible:border-blue-500 focus-visible:border-2
+								focus-visible:bg-background ${error.name ? "border-red-500" : ""}`}
+              onInvalid={(e) =>
+                (e.target as HTMLInputElement).setCustomValidity(
+                  "Por favor, insira seu nome.",
+                )
+              }
+              onInput={(e) =>
+                (e.target as HTMLInputElement).setCustomValidity("")
+              }
+            />
+            {error?.name && (
+              <motion.ul
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="mt-0.5"
+              >
+                {error.name.map((msg, index) => (
+                  <li key={index} className="text-sm text-red-500">
+                    {msg}
+                  </li>
+                ))}
+              </motion.ul>
+            )}
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5, delay: 0.5 }}
             className="flex flex-col gap-1.5"
           >
             <label
@@ -168,8 +220,8 @@ export function LoginForm({
               data-form-type="other"
               data-1p-ignore
               className={`h-12 rounded-xl bg-muted border-border transition-colors duration-200
-                focus-visible:ring-0 focus-visible:border-blue-500 focus-visible:border-2
-                focus-visible:bg-background ${error.email ? "border-red-500" : ""}`}
+								focus-visible:ring-0 focus-visible:border-blue-500 focus-visible:border-2
+								focus-visible:bg-background ${error.email ? "border-red-500" : ""}`}
               onInvalid={(e) =>
                 (e.target as HTMLInputElement).setCustomValidity(
                   "Por favor, insira um e-mail válido.",
@@ -198,7 +250,7 @@ export function LoginForm({
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
+            transition={{ duration: 0.5, delay: 0.6 }}
             className="flex flex-col gap-1.5"
           >
             <label
@@ -222,10 +274,8 @@ export function LoginForm({
                 data-form-type="other"
                 data-1p-ignore
                 className={`h-12 rounded-xl bg-muted border-border transition-colors duration-200
-                  focus-visible:ring-0 focus-visible:border-blue-500 focus-visible:border-2
-                  focus-visible:bg-background pr-10 ${
-                    error.password ? "border-red-500" : ""
-                  }`}
+									focus-visible:ring-0 focus-visible:border-blue-500 focus-visible:border-2
+									focus-visible:bg-background pr-10 ${error.password ? "border-red-500" : ""}`}
               />
               <button
                 type="button"
@@ -259,10 +309,10 @@ export function LoginForm({
             className="flex flex-col gap-1.5"
           >
             <p className="text-sm text-muted-foreground">
-              Não tem uma conta?{" "}
-              <Link href="/register" className="text-blue-500 hover:underline">
+              Já tem uma conta?{" "}
+              <Link href="/login" className="text-blue-500 hover:underline">
                 {" "}
-                Crie uma conta{" "}
+                Faça login{" "}
               </Link>
             </p>
           </motion.div>
@@ -270,15 +320,15 @@ export function LoginForm({
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.6 }}
+            transition={{ duration: 0.5, delay: 0.7 }}
           >
             <Button
               type="submit"
-              disabled={logingIn}
+              disabled={registering}
               className="w-full h-12 rounded-xl bg-blue-500 hover:bg-blue-500/80 dark:bg-blue-700 text-white font-semibold text-base mt-1 flex items-center justify-center gap-2"
             >
-              {logingIn ? "Entrando..." : "Continuar"}
-              {!logingIn && <ArrowRight size={18} />}
+              {registering ? "Criando conta..." : "Criar conta"}
+              {!registering && <ArrowRight size={18} />}
             </Button>
           </motion.div>
         </form>
