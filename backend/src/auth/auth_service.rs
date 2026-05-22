@@ -158,15 +158,12 @@ impl AuthService {
     pub fn generate_tokens(&self, user_id: i32) -> Result<(String, String, i64, i64), String> {
         let now = Utc::now();
 
-        // 15 minutos para o Access Token
         let access_duration = Duration::minutes(15);
         let access_exp_time = now + access_duration;
 
-        // 7 dias para o Refresh Token
         let refresh_duration = Duration::days(7);
         let refresh_exp_time = now + refresh_duration;
 
-        // Claims para o JWT (o campo 'exp' do JWT exige segundos)
         let access_claims = Claims {
             sub: user_id,
             exp: access_exp_time.timestamp() as usize,

@@ -10,6 +10,7 @@ import { SignIn } from "@/lib/auth";
 import { ErrorType } from "@/types/error-type";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export function LoginForm({
   className,
@@ -19,6 +20,8 @@ export function LoginForm({
   const [logingIn, setLogingIn] = useState(false);
   const [error, setError] = useState<ErrorType>({ status: false });
   const passwordRef = useRef<HTMLInputElement>(null);
+
+  const router = useRouter();
 
   const handleTogglePassword = () => {
     setShowPassword(!showPassword);
@@ -46,8 +49,8 @@ export function LoginForm({
       );
 
       if (response?.status) {
-        window.location.href = "/";
-
+        router.push("/sms");
+        router.refresh();
         return;
       }
 

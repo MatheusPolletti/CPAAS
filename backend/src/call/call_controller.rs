@@ -1,4 +1,9 @@
-use axum::{Form, Json, Router, extract::State, response::IntoResponse, routing::post};
+use axum::{
+    Form, Json, Router,
+    extract::State,
+    response::IntoResponse,
+    routing::{get, post},
+};
 use reqwest::StatusCode;
 use std::sync::Arc;
 
@@ -11,11 +16,13 @@ use crate::{
 };
 
 pub async fn call(
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     State(call_service): State<Arc<CallService>>,
     Json(payload): Json<CallOutbound>,
 ) -> impl IntoResponse {
-    match call_service.call(&payload.to).await {
+    let user_id = user.0.sub;
+
+    match call_service.call(&payload.to, user_id).await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
     }
@@ -43,8 +50,15 @@ pub async fn get_call_twiml() -> impl IntoResponse {
     )
 }
 
-pub async fn receive_inbound_call(Form(payload): Form<VoiceInbound>) -> impl IntoResponse {
+pub async fn receive_inbound_call(
+    State(call_service): State<Arc<CallService>>,
+    Form(payload): Form<VoiceInbound>,
+) -> impl IntoResponse {
     println!("📞 Ligação recebida do número: {}", payload.from);
+
+    let _ = call_service
+        .register_inbound(&payload.call_sid, &payload.from, &payload.to)
+        .await;
 
     let ultimos_digitos = if payload.from.len() >= 4 {
         &payload.from[payload.from.len() - 4..]
@@ -73,9 +87,20 @@ pub async fn receive_inbound_call(Form(payload): Form<VoiceInbound>) -> impl Int
     )
 }
 
+pub async fn get_history(
+    _user: AuthenticatedUser,
+    State(call_service): State<Arc<CallService>>,
+) -> impl IntoResponse {
+    match call_service.get_call_history().await {
+        Ok(history) => (axum::http::StatusCode::OK, Json(history)).into_response(),
+        Err(msg) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
+    }
+}
+
 pub fn router() -> Router<crate::AppState> {
     Router::new()
         .route("/call", post(call))
         .route("/twiml", post(get_call_twiml))
         .route("/inbound", post(receive_inbound_call))
+        .route("/history", get(get_history))
 }

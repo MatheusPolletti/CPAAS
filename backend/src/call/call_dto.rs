@@ -16,3 +16,9 @@ pub struct VoiceInbound {
     #[serde(rename = "CallSid")]
     pub call_sid: String,
 }
+
+#[derive(Deserialize)]
+pub struct TwilioCallResponse {
+    pub sid: String,
+    pub status: String,
+}

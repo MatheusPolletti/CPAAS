@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 import { PhoneCall } from "lucide-react";
 
-export function TeamSwitcher() {
+export function CompanyHeader() {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
