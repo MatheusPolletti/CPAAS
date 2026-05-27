@@ -10,7 +10,7 @@ const inFlightRefreshes = new Map<string, Promise<JWT>>();
 async function performRefresh(token: JWT): Promise<JWT> {
   try {
     const response = await axios.post(`${BACKEND_URL}/auth/refresh`, {
-      refreshToken: token.refreshToken,
+      refresh_token: token.refreshToken,
     });
 
     if (response.data?.success) {
@@ -111,12 +111,30 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.accessToken = user.accessToken;
         token.refreshToken = user.refreshToken;
+        token.expiresIn = user.expiresIn ? Number(user.expiresIn) : undefined;
+        token.refreshExpiresIn = user.refreshExpiresIn
+          ? Number(user.refreshExpiresIn)
+          : undefined;
         return token;
       }
 
       if (trigger === "update" && session) {
         token.lastPermissionCheck = now;
         return token;
+      }
+
+      if (!token.expiresIn && token.accessToken) {
+        try {
+          const payload = token.accessToken.split(".")[1];
+          const decoded = JSON.parse(
+            Buffer.from(payload, "base64").toString("utf-8"),
+          ) as { exp?: number };
+          if (decoded.exp) {
+            token.expiresIn = decoded.exp * 1000;
+          }
+        } catch {
+          // Ignore decode failures and rely on refresh failures to re-login.
+        }
       }
 
       if (token.expiresIn && now >= Number(token.expiresIn) - 10_000) {

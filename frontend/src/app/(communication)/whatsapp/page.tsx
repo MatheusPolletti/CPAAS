@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { AxiosInstance } from "axios";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useAxiosAuth } from "@/lib/axios-auth";
+import { useTwilioVoice } from "@/hooks/use-twilio-voice";
+import { BACKEND_URL } from "@/lib/constant";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,13 +21,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   MessageCircle,
+  Mic,
   MoreVertical,
   Paperclip,
   Phone,
   Plus,
   Search,
   Send,
-  Smile,
+  Square,
 } from "lucide-react";
 
 type ContactPreview = {
@@ -46,6 +50,8 @@ type ChatMessageResponse = {
   body: string | null;
   status: string;
   created_at: string;
+  media_url?: string | null;
+  media_type?: string | null;
 };
 
 type ChatThreadResponse = {
@@ -53,9 +59,96 @@ type ChatThreadResponse = {
   messages: ChatMessageResponse[];
 };
 
+const AuthMedia = ({
+  url,
+  type,
+  axiosAuth,
+}: {
+  url: string;
+  type: string;
+  axiosAuth: AxiosInstance;
+}) => {
+  const [mediaBlobUrl, setMediaBlobUrl] = useState<string | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchMedia = async () => {
+      try {
+        const encodedUrl = encodeURIComponent(url);
+        const response = await axiosAuth.get(
+          `/whatsapp/media?url=${encodedUrl}`,
+          {
+            responseType: "blob",
+          },
+        );
+
+        if (active) {
+          if (objectUrlRef.current) {
+            URL.revokeObjectURL(objectUrlRef.current);
+          }
+          const objectUrl = URL.createObjectURL(response.data);
+          objectUrlRef.current = objectUrl;
+          setMediaBlobUrl(objectUrl);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar mídia protegida", error);
+      }
+    };
+
+    fetchMedia();
+
+    return () => {
+      active = false;
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+  }, [url, axiosAuth]);
+
+  if (!mediaBlobUrl) {
+    return <Skeleton className="mb-2 h-40 w-full rounded-xl opacity-50" />;
+  }
+
+  if (type.startsWith("image/")) {
+    return (
+      <img
+        src={mediaBlobUrl}
+        alt="Midia WhatsApp"
+        className="mb-2 max-h-60 w-full rounded-xl object-cover"
+      />
+    );
+  }
+
+  if (type.startsWith("audio/")) {
+    return (
+      <audio controls className="mb-2 w-full">
+        <source src={mediaBlobUrl} type={type} />
+      </audio>
+    );
+  }
+
+  return (
+    <a
+      href={mediaBlobUrl}
+      target="_blank"
+      rel="noreferrer"
+      download="midia_whatsapp"
+      className="mb-2 inline-block text-xs underline"
+    >
+      Baixar arquivo
+    </a>
+  );
+};
+
 const WhatsappPage = () => {
   const axiosAuth = useAxiosAuth();
   const { status } = useSession();
+  const { ready, connecting, inCall, startCall, hangup } = useTwilioVoice(
+    status === "authenticated",
+  );
 
   const [contacts, setContacts] = useState<ContactPreview[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
@@ -67,8 +160,19 @@ const WhatsappPage = () => {
   const [newContactOpen, setNewContactOpen] = useState(false);
   const [newContactNumber, setNewContactNumber] = useState("");
   const [sending, setSending] = useState(false);
+  const [page, setPage] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<string | null>(
+    null,
+  );
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const objectUrlsRef = useRef<string[]>([]);
 
   const activeContactData = useMemo(() => {
     return (
@@ -123,6 +227,7 @@ const WhatsappPage = () => {
           { params: { page: 0 } },
         );
         setMessages(response.data.messages ?? []);
+        setPage(0);
       } catch {
         toast.error("Erro ao buscar conversa", { position: "top-center" });
         setMessages([]);
@@ -136,9 +241,95 @@ const WhatsappPage = () => {
     }
   }, [status, activeContact, axiosAuth]);
 
+  const handleLoadMore = async () => {
+    if (!activeContact || loadingMore) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    try {
+      const encoded = encodeURIComponent(activeContact);
+      const response = await axiosAuth.get<ChatThreadResponse>(
+        `/whatsapp/chat/${encoded}`,
+        { params: { page: nextPage } },
+      );
+
+      const olderMessages = response.data.messages ?? [];
+      if (olderMessages.length > 0) {
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((msg) => msg.id));
+          const merged = olderMessages.filter(
+            (msg) => !existingIds.has(msg.id),
+          );
+          return [...merged, ...prev];
+        });
+        setPage(nextPage);
+      }
+    } catch {
+      toast.error("Erro ao carregar mensagens antigas", {
+        position: "top-center",
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, activeContact]);
+
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      objectUrlsRef.current = [];
+    };
+  }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/ogg",
+        });
+
+        const audioFile = new File([audioBlob], "gravacao_de_voz.ogg", {
+          type: "audio/ogg",
+        });
+
+        setAttachment(audioFile);
+
+        const previewUrl = URL.createObjectURL(audioFile);
+        objectUrlsRef.current.push(previewUrl);
+        setAttachmentPreview(previewUrl);
+
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Erro ao acessar o microfone", error);
+      toast.error(
+        "Permissão de microfone negada ou dispositivo não encontrado.",
+      );
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
 
   const handleStartConversation = () => {
     const trimmed = newContactNumber.trim();
@@ -170,24 +361,35 @@ const WhatsappPage = () => {
 
   const handleSendMessage = async () => {
     const trimmedBody = messageText.trim();
-    if (!trimmedBody || !activeContact || sending) return;
+    if ((!trimmedBody && !attachment) || !activeContact || sending) return;
 
     setSending(true);
     try {
-      await axiosAuth.post("/whatsapp/send", {
-        to: activeContact,
-        message: trimmedBody,
+      const formData = new FormData();
+      formData.append("to", activeContact);
+      formData.append("message", trimmedBody);
+      if (attachment) {
+        formData.append("file", attachment);
+      }
+
+      await axiosAuth.post("/whatsapp/send", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
       const now = new Date().toISOString();
+      const previewUrl = attachmentPreview ?? null;
+      const mediaType = attachment?.type ?? null;
+      const messagePreview = trimmedBody || (attachment ? "Midia enviada" : "");
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now(),
           direction: "outbound",
-          body: trimmedBody,
+          body: trimmedBody || null,
           status: "queued",
           created_at: now,
+          media_url: previewUrl,
+          media_type: mediaType,
         },
       ]);
 
@@ -196,7 +398,7 @@ const WhatsappPage = () => {
           if (contact.contact_number !== activeContact) return contact;
           return {
             ...contact,
-            last_message_body: trimmedBody,
+            last_message_body: messagePreview || null,
             last_message_date: now,
             direction: "outbound",
           };
@@ -209,7 +411,7 @@ const WhatsappPage = () => {
           next.unshift({
             contact_number: activeContact,
             profile_name: null,
-            last_message_body: trimmedBody,
+            last_message_body: messagePreview || null,
             last_message_date: now,
             direction: "outbound",
             status: "online",
@@ -222,10 +424,63 @@ const WhatsappPage = () => {
       });
 
       setMessageText("");
+      setAttachment(null);
+      setAttachmentPreview(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } catch {
       toast.error("Erro ao enviar WhatsApp", { position: "top-center" });
     } finally {
       setSending(false);
+    }
+  };
+
+  const handlePickFile = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setAttachment(file);
+
+    if (file) {
+      const preview = URL.createObjectURL(file);
+      objectUrlsRef.current.push(preview);
+      setAttachmentPreview(preview);
+    } else {
+      setAttachmentPreview(null);
+    }
+  };
+
+  const handleRemoveAttachment = () => {
+    setAttachment(null);
+    setAttachmentPreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleCallContact = async () => {
+    try {
+      if (inCall) {
+        hangup();
+        return;
+      }
+      if (!activeContact) return;
+      if (!ready) {
+        toast.error("Dispositivo de voz nao esta pronto", {
+          position: "top-center",
+        });
+        return;
+      }
+
+      await startCall(activeContact);
+      toast.success("Ligacao iniciada", { position: "top-center" });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao iniciar ligacao";
+      toast.error(message, { position: "top-center" });
     }
   };
 
@@ -243,6 +498,73 @@ const WhatsappPage = () => {
       return contact.profile_name.slice(0, 1).toUpperCase();
     }
     return contact.contact_number.slice(-2);
+  };
+
+  const renderMedia = (message: ChatMessageResponse) => {
+    if (!message.media_url) return null;
+
+    let type = message.media_type;
+    if (!type) {
+      if (
+        message.media_url.endsWith(".ogg") ||
+        message.media_url.endsWith(".webm")
+      ) {
+        type = "audio/ogg";
+      } else {
+        type = "image/jpeg";
+      }
+    }
+
+    if (message.media_url.startsWith("https://api.twilio.com/")) {
+      return (
+        <AuthMedia url={message.media_url} type={type} axiosAuth={axiosAuth} />
+      );
+    }
+
+    const resolvedUrl = resolveMediaUrl(message.media_url);
+
+    if (type.startsWith("image/")) {
+      return (
+        <img
+          src={resolvedUrl}
+          alt="Midia"
+          className="mb-2 max-h-60 w-full rounded-xl object-cover"
+        />
+      );
+    }
+
+    if (type.startsWith("audio/")) {
+      return (
+        <audio controls className="mb-2 w-full">
+          <source src={resolvedUrl} type={type} />
+        </audio>
+      );
+    }
+
+    return (
+      <a
+        href={resolvedUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="mb-2 inline-block text-xs underline"
+      >
+        Abrir midia
+      </a>
+    );
+  };
+
+  const resolveMediaUrl = (url: string) => {
+    if (url.startsWith("blob:") || url.startsWith("data:")) return url;
+
+    if (url.includes("/whatsapp/uploads/")) {
+      const filename = url.split("/").pop();
+      return `${BACKEND_URL}/whatsapp/uploads/${filename}`;
+    }
+
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    if (!BACKEND_URL) return url;
+    if (url.startsWith("/")) return `${BACKEND_URL}${url}`;
+    return `${BACKEND_URL}/${url}`;
   };
 
   if (status === "loading") {
@@ -388,11 +710,18 @@ const WhatsappPage = () => {
                   <p className="text-sm font-semibold">
                     {activeContactData?.profile_name || activeContact}
                   </p>
-                  <p className="text-xs text-emerald-600">online</p>
+                  <p className="text-xs text-emerald-600">
+                    {activeContactData?.contact_number}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCallContact}
+                  disabled={connecting || (!ready && !inCall)}
+                >
                   <Phone size={18} />
                 </Button>
                 <DropdownMenu>
@@ -402,7 +731,6 @@ const WhatsappPage = () => {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem>Detalhes do contato</DropdownMenuItem>
                     <DropdownMenuItem>Apagar conversa</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -433,6 +761,17 @@ const WhatsappPage = () => {
 
                 {!loadingChat && messages.length > 0 && (
                   <div className="space-y-3">
+                    <div className="flex justify-center">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleLoadMore}
+                        disabled={loadingMore}
+                      >
+                        {loadingMore ? "Carregando..." : "Ler mais"}
+                      </Button>
+                    </div>
                     {messages.map((message) => {
                       const outbound = message.direction === "outbound";
                       return (
@@ -445,22 +784,43 @@ const WhatsappPage = () => {
                         >
                           <div
                             className={cn(
-                              "max-w-[70%] rounded-2xl px-4 py-2 text-sm shadow-sm",
+                              "relative max-w-[70%] rounded-2xl px-4 py-2 shadow-sm",
                               outbound
-                                ? "bg-emerald-500 text-white"
-                                : "bg-background text-foreground border",
+                                ? "bg-emerald-500 text-white rounded-br-md"
+                                : "bg-background text-foreground border rounded-bl-md",
                             )}
                           >
-                            <p>{message.body ?? ""}</p>
+                            {renderMedia(message)}
+                            {message.body && (
+                              <p className="text-sm whitespace-pre-wrap break-words pr-14">
+                                {message.body}
+                              </p>
+                            )}
+                            {!message.body && message.media_url && (
+                              <p className="text-xs text-muted-foreground">
+                                Midia recebida
+                              </p>
+                            )}
+
                             <div
                               className={cn(
-                                "mt-1 text-[10px]",
+                                "mt-1 flex items-center justify-end gap-1 text-[11px]",
                                 outbound
                                   ? "text-emerald-100"
                                   : "text-muted-foreground",
                               )}
                             >
-                              {formatTime(message.created_at)}
+                              <span>{formatTime(message.created_at)}</span>
+
+                              {outbound && (
+                                <span className="flex items-center text-white text-sm">
+                                  {message.status === "sent" && "."}
+                                  {message.status === "delivered" && "✓"}
+                                  {message.status === "read" && (
+                                    <span className="text-white">✓✓</span>
+                                  )}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -473,17 +833,64 @@ const WhatsappPage = () => {
             </div>
 
             <div className="border-t bg-background px-6 py-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,audio/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              {attachment && (
+                <div className="mb-3 flex items-center justify-between rounded-lg bg-muted px-3 py-2 text-xs">
+                  <span className="truncate">{attachment.name}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveAttachment}
+                  >
+                    Remover
+                  </Button>
+                </div>
+              )}
               <div className="flex items-center gap-3">
-                <Button variant="ghost" size="icon">
-                  <Smile size={18} />
-                </Button>
-                <Button variant="ghost" size="icon">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handlePickFile}
+                  className="h-10 w-10"
+                >
                   <Paperclip size={18} />
                 </Button>
+                {isRecording ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="icon"
+                    onClick={stopRecording}
+                    className="h-10 w-10 animate-pulse rounded-full"
+                  >
+                    <Square size={16} />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 text-muted-foreground"
+                    onClick={startRecording}
+                  >
+                    <Mic size={20} />
+                  </Button>
+                )}
                 <Input
                   value={messageText}
                   onChange={(event) => setMessageText(event.target.value)}
-                  placeholder="Digite uma mensagem"
+                  placeholder={
+                    isRecording ? "Gravando áudio..." : "Digite uma mensagem"
+                  }
+                  disabled={isRecording}
                   className="h-12 flex-1"
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
@@ -495,7 +902,7 @@ const WhatsappPage = () => {
                 <Button
                   type="button"
                   size="icon"
-                  disabled={!messageText.trim() || sending}
+                  disabled={(!messageText.trim() && !attachment) || sending}
                   onClick={handleSendMessage}
                   className="h-12 w-12 rounded-full bg-emerald-500 text-white hover:bg-emerald-500/90"
                 >

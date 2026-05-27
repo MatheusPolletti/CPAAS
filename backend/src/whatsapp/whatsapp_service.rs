@@ -26,7 +26,46 @@ impl WhatsappService {
         }
     }
 
-    pub async fn send_whatsapp(&self, to: &String, message: &String) -> Result<(), String> {
+    pub async fn fetch_media(&self, media_url: &str) -> Result<(Vec<u8>, String), String> {
+        if !media_url.starts_with("https://api.twilio.com/") {
+            return Err("URL de mídia não autorizada".to_string());
+        }
+
+        let client = Client::new();
+
+        let res = client
+            .get(media_url)
+            .basic_auth(&self.twilio_account_sid, Some(&self.twilio_auth_token))
+            .send()
+            .await
+            .map_err(|e| format!("Erro de rede ao buscar mídia: {}", e))?;
+
+        let content_type = res
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+
+        if res.status().is_success() {
+            let bytes = res
+                .bytes()
+                .await
+                .map_err(|e| format!("Erro ao ler bytes da mídia: {}", e))?;
+
+            Ok((bytes.to_vec(), content_type))
+        } else {
+            Err("Falha ao autorizar download na Twilio".to_string())
+        }
+    }
+
+    pub async fn send_whatsapp(
+        &self,
+        to: &String,
+        message: &String,
+        media_url: Option<String>,
+        media_type: Option<String>,
+    ) -> Result<(), String> {
         let client = Client::new();
 
         let url = format!(
@@ -37,11 +76,15 @@ impl WhatsappService {
         let to_whatsapp = format!("whatsapp:{}", to);
         let from_whatsapp = format!("whatsapp:{}", self.twilio_phone_number);
 
-        let params = [
-            ("To", to_whatsapp),
-            ("From", from_whatsapp),
-            ("Body", message.clone()),
-        ];
+        let mut params = vec![("To", to_whatsapp), ("From", from_whatsapp)];
+
+        if !message.trim().is_empty() {
+            params.push(("Body", message.clone()));
+        }
+
+        if let Some(ref link) = media_url {
+            params.push(("MediaUrl", link.clone()));
+        }
 
         let res = client
             .post(&url)
@@ -69,6 +112,8 @@ impl WhatsappService {
                 sender_name: Set(Some("Você".to_string())),
                 twilio_sid: Set(twilio_sid),
                 user_id: Set(None),
+                media_url: Set(media_url),
+                media_type: Set(media_type),
                 ..Default::default()
             };
 
@@ -89,6 +134,9 @@ impl WhatsappService {
         message: &str,
         sender_name: &Option<String>,
         message_sid: &str,
+
+        media_url: Option<&str>,
+        media_type: Option<&str>,
     ) -> Result<(), String> {
         let clean_from = from.strip_prefix("whatsapp:").unwrap_or(from);
 
@@ -101,6 +149,9 @@ impl WhatsappService {
             sender_name: Set(sender_name.clone()),
             twilio_sid: Set(Some(message_sid.to_string())),
             user_id: Set(None),
+
+            media_url: Set(media_url.map(|s| s.to_string())),
+            media_type: Set(media_type.map(|s| s.to_string())),
             ..Default::default()
         };
 
@@ -171,9 +222,24 @@ impl WhatsappService {
                 .map_err(|e| format!("Erro no banco: {:?}", e))?;
 
             if let Some(msg) = last_msg_option {
+                let resolved_profile_name = if msg.direction == "inbound" {
+                    msg.sender_name
+                } else {
+                    let last_inbound = whatsapp::Entity::find()
+                        .filter(whatsapp::Column::FromNumber.eq(&number))
+                        .filter(whatsapp::Column::Direction.eq("inbound"))
+                        .filter(whatsapp::Column::SenderName.is_not_null())
+                        .order_by_desc(whatsapp::Column::CreatedAt)
+                        .one(&self.db)
+                        .await
+                        .unwrap_or(None);
+
+                    last_inbound.and_then(|m| m.sender_name)
+                };
+
                 inbox.push(WhatsappContactPreview {
                     contact_number: number,
-                    profile_name: msg.sender_name,
+                    profile_name: resolved_profile_name,
                     last_message_body: msg.body,
                     last_message_date: msg.created_at,
                     direction: msg.direction,

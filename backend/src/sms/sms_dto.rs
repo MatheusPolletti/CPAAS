@@ -26,6 +26,7 @@ pub struct ChatMessageResponse {
 #[derive(serde::Serialize)]
 pub struct ContactPreview {
     pub contact_number: String,
+    pub name: Option<String>,
     pub last_message_body: Option<String>,
     pub last_message_date: chrono::DateTime<chrono::FixedOffset>,
     pub direction: String,
@@ -40,4 +41,10 @@ pub struct ContactListResponse {
 pub struct ChatThreadResponse {
     pub contact: String,
     pub messages: Vec<ChatMessageResponse>,
+}
+
+#[derive(Deserialize)]
+pub struct SaveContactRequest {
+    pub phone_number: String,
+    pub name: String,
 }

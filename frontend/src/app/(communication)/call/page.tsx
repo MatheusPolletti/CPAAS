@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
 import { useAxiosAuth } from "@/lib/axios-auth";
+import { useTwilioVoice } from "@/hooks/use-twilio-voice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Delete, Phone, PhoneCall } from "lucide-react";
+import { Delete, Phone, PhoneCall, PhoneOff } from "lucide-react";
 
 type CallHistory = {
   id: number;
@@ -39,20 +40,21 @@ const dialPad = [
 const CallPage = () => {
   const axiosAuth = useAxiosAuth();
   const { status } = useSession();
+  const { ready, connecting, inCall, startCall, hangup } = useTwilioVoice(
+    status === "authenticated",
+  );
 
   const [dialNumber, setDialNumber] = useState("+55");
-  const [calling, setCalling] = useState(false);
   const [history, setHistory] = useState<CallHistory[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const hadActiveCallRef = useRef(false);
 
   const fetchHistory = useCallback(async () => {
-    await Promise.resolve();
-    setLoadingHistory(true);
     try {
       const response = await axiosAuth.get<CallHistory[]>("/call/history");
       setHistory(response.data ?? []);
     } catch {
-      toast.error("Erro ao buscar historico de chamadas", {
+      toast.error("Erro ao buscar histórico de chamadas", {
         position: "top-center",
       });
     } finally {
@@ -61,10 +63,26 @@ const CallPage = () => {
   }, [axiosAuth]);
 
   useEffect(() => {
-    if (status === "authenticated") {
-      fetchHistory();
-    }
+    const loadInitialData = async () => {
+      if (status === "authenticated") {
+        await fetchHistory();
+      }
+    };
+
+    loadInitialData();
   }, [status, fetchHistory]);
+
+  useEffect(() => {
+    if (inCall || connecting) {
+      hadActiveCallRef.current = true;
+      return;
+    }
+
+    if (hadActiveCallRef.current) {
+      setDialNumber("+55");
+      hadActiveCallRef.current = false;
+    }
+  }, [inCall, connecting]);
 
   const formattedHistory = useMemo(() => {
     return history.map((item) => {
@@ -83,22 +101,61 @@ const CallPage = () => {
   };
 
   const handleCall = async () => {
+    if (inCall) {
+      hangup();
+      return;
+    }
+
+    if (!ready) {
+      toast.error("Dispositivo de voz nao esta pronto", {
+        position: "top-center",
+      });
+      return;
+    }
+
     const trimmed = dialNumber.trim();
     if (!trimmed || trimmed === "+55") {
       toast.error("Informe um numero valido", { position: "top-center" });
       return;
     }
 
-    setCalling(true);
     try {
-      await axiosAuth.post("/call/call", { to: trimmed });
-      toast.success("Ligacao iniciada", { position: "top-center" });
-      setDialNumber("+55");
-      fetchHistory();
-    } catch {
-      toast.error("Erro ao iniciar ligacao", { position: "top-center" });
-    } finally {
-      setCalling(false);
+      await startCall(trimmed);
+      toast.success("Ligação iniciada", { position: "top-center" });
+      // setDialNumber("+55"); // Keep the dialed number after calling
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao iniciar ligação";
+      toast.error(message, { position: "top-center" });
+    }
+  };
+
+  const handleHistoryCall = async (contact: string) => {
+    if (inCall) {
+      hangup();
+      return;
+    }
+
+    if (!ready) {
+      toast.error("Dispositivo de voz nao esta pronto", {
+        position: "top-center",
+      });
+      return;
+    }
+
+    if (!contact.trim()) {
+      toast.error("Informe um numero valido", { position: "top-center" });
+      return;
+    }
+
+    try {
+      await startCall(contact);
+      toast.success("Ligação iniciada", { position: "top-center" });
+      setDialNumber(contact);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao iniciar ligação";
+      toast.error(message, { position: "top-center" });
     }
   };
 
@@ -142,7 +199,7 @@ const CallPage = () => {
           <PhoneCall size={18} />
         </div>
         <div>
-          <p className="text-base font-semibold">Fazer ligacao</p>
+          <p className="text-base font-semibold">Fazer ligação</p>
           <p className="text-sm text-muted-foreground">
             Discador integrado para chamadas de voz.
           </p>
@@ -186,10 +243,14 @@ const CallPage = () => {
             <Button
               type="button"
               onClick={handleCall}
-              disabled={calling}
-              className="h-16 w-16 rounded-full bg-green-500 text-white shadow-md hover:bg-green-500/90 cursor-pointer"
+              disabled={connecting || (!ready && !inCall)}
+              className={`h-16 w-16 rounded-full text-white shadow-md cursor-pointer ${
+                inCall
+                  ? "bg-red-500 hover:bg-red-500/90"
+                  : "bg-green-500 hover:bg-green-500/90"
+              }`}
             >
-              <Phone size={20} />
+              {inCall ? <PhoneOff size={20} /> : <Phone size={20} />}
             </Button>
             <Button
               type="button"
@@ -244,9 +305,21 @@ const CallPage = () => {
                           {label} · {item.status}
                         </p>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {formatHistoryDate(item.created_at)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {formatHistoryDate(item.created_at)}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleHistoryCall(item.contact)}
+                          disabled={connecting || (!ready && !inCall)}
+                          className="h-8 w-8"
+                        >
+                          <Phone size={16} />
+                        </Button>
+                      </div>
                     </div>
                     <Separator className="mt-3" />
                   </div>

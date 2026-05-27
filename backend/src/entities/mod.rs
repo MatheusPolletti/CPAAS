@@ -3,6 +3,7 @@
 pub mod prelude;
 
 pub mod calls;
+pub mod contacts;
 pub mod sms;
 pub mod users;
 pub mod whatsapp;

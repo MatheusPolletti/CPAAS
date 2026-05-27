@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useAxiosAuth } from "@/lib/axios-auth";
+import { useTwilioVoice } from "@/hooks/use-twilio-voice";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import {
 
 type ContactPreview = {
   contact_number: string;
+  name: string | null;
   last_message_body: string | null;
   last_message_date: string;
   direction: string;
@@ -52,6 +54,9 @@ type ChatThreadResponse = {
 const SmsPage = () => {
   const axiosAuth = useAxiosAuth();
   const { status } = useSession();
+  const { ready, connecting, inCall, startCall, hangup } = useTwilioVoice(
+    status === "authenticated",
+  );
 
   const [contacts, setContacts] = useState<ContactPreview[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
@@ -63,6 +68,8 @@ const SmsPage = () => {
   const [newContactOpen, setNewContactOpen] = useState(false);
   const [newContactNumber, setNewContactNumber] = useState("");
   const [sending, setSending] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactName, setContactName] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -78,9 +85,11 @@ const SmsPage = () => {
     if (!term) return contacts;
     return contacts.filter((contact) => {
       const body = contact.last_message_body?.toLowerCase() ?? "";
+      const name = contact.name?.toLowerCase() ?? "";
       return (
         contact.contact_number.toLowerCase().includes(term) ||
-        body.includes(term)
+        body.includes(term) ||
+        name.includes(term)
       );
     });
   }, [contacts, search]);
@@ -91,6 +100,7 @@ const SmsPage = () => {
       try {
         const response =
           await axiosAuth.get<ContactListResponse>("/sms/contacts");
+
         setContacts(response.data.contacts ?? []);
       } catch {
         toast.error("Erro ao buscar contatos SMS", { position: "top-center" });
@@ -139,6 +149,7 @@ const SmsPage = () => {
     setActiveContact(trimmed);
     setNewContactNumber("");
     setNewContactOpen(false);
+    setContactName("");
     setSearch("");
 
     setContacts((prev) => {
@@ -149,6 +160,7 @@ const SmsPage = () => {
       return [
         {
           contact_number: trimmed,
+          name: null,
           last_message_body: null,
           last_message_date: new Date().toISOString(),
           direction: "outbound",
@@ -198,6 +210,7 @@ const SmsPage = () => {
         if (!exists) {
           next.unshift({
             contact_number: activeContact,
+            name: null,
             last_message_body: trimmedBody,
             last_message_date: now,
             direction: "outbound",
@@ -214,6 +227,57 @@ const SmsPage = () => {
       toast.error("Erro ao enviar SMS", { position: "top-center" });
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleSaveContact = async () => {
+    const trimmedName = contactName.trim();
+    if (!activeContact || !trimmedName || savingContact) return;
+    setSavingContact(true);
+    try {
+      await axiosAuth.post("/sms/contact/save", {
+        phone_number: activeContact,
+        name: trimmedName,
+      });
+
+      setContacts((prev) =>
+        prev.map((contact) =>
+          contact.contact_number === activeContact
+            ? { ...contact, name: trimmedName }
+            : contact,
+        ),
+      );
+
+      toast.success("Contato salvo com sucesso", {
+        position: "top-center",
+      });
+    } catch {
+      toast.error("Erro ao salvar contato", { position: "top-center" });
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
+  const handleCallContact = async () => {
+    try {
+      if (inCall) {
+        hangup();
+        return;
+      }
+      if (!activeContact) return;
+      if (!ready) {
+        toast.error("Dispositivo de voz nao esta pronto", {
+          position: "top-center",
+        });
+        return;
+      }
+
+      await startCall(activeContact);
+      toast.success("Ligacao iniciada", { position: "top-center" });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao iniciar ligacao";
+      toast.error(message, { position: "top-center" });
     }
   };
 
@@ -316,7 +380,10 @@ const SmsPage = () => {
                   <button
                     key={contact.contact_number}
                     type="button"
-                    onClick={() => setActiveContact(contact.contact_number)}
+                    onClick={() => {
+                      setActiveContact(contact.contact_number);
+                      setContactName(contact.name ?? "");
+                    }}
                     className={cn(
                       "flex items-center gap-3 px-4 py-3 text-left transition",
                       isActive ? "bg-blue-50" : "hover:bg-muted/60",
@@ -330,7 +397,7 @@ const SmsPage = () => {
                     <div className="flex-1 overflow-hidden">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold">
-                          {contact.contact_number}
+                          {contact.name || contact.contact_number}
                         </p>
                         <span className="text-xs text-muted-foreground">
                           {formatTime(contact.last_message_date)}
@@ -357,7 +424,9 @@ const SmsPage = () => {
                   <AvatarFallback>{activeContact.slice(-2)}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="text-sm font-semibold">{activeContact}</p>
+                  <p className="text-sm font-semibold">
+                    {activeContactData?.name || activeContact}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {activeContactData?.last_message_body
                       ? "Conversa ativa"
@@ -366,7 +435,12 @@ const SmsPage = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCallContact}
+                  disabled={connecting || (!ready && !inCall)}
+                >
                   <Phone size={18} />
                 </Button>
                 <DropdownMenu>
@@ -376,10 +450,28 @@ const SmsPage = () => {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem>Detalhes do contato</DropdownMenuItem>
                     <DropdownMenuItem>Apagar conversa</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+              </div>
+            </div>
+
+            <div className="border-b bg-background px-5 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <Input
+                  value={contactName}
+                  onChange={(event) => setContactName(event.target.value)}
+                  placeholder="Salvar nome do contato"
+                  className="h-9 max-w-xs"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSaveContact}
+                  disabled={!contactName.trim() || savingContact}
+                >
+                  Salvar contato
+                </Button>
               </div>
             </div>
 

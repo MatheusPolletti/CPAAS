@@ -1,9 +1,10 @@
+use crate::entities::contacts;
 use crate::entities::sms;
 use crate::sms::sms_dto::ContactPreview;
 use reqwest::Client;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection};
 use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
 pub struct SmsService {
@@ -116,6 +117,20 @@ impl SmsService {
         unique_numbers.extend(outbound_contacts);
         unique_numbers.extend(inbound_contacts);
 
+        // A MÁGICA ACONTECE AQUI: Buscamos todos os nomes de uma vez só!
+        let numbers_vec: Vec<String> = unique_numbers.clone().into_iter().collect();
+        let saved_contacts = contacts::Entity::find()
+            .filter(contacts::Column::PhoneNumber.is_in(numbers_vec))
+            .all(&self.db)
+            .await
+            .unwrap_or_default();
+
+        // Criamos um dicionário (Mapa) rápido -> Telefone : Nome
+        let mut name_map: HashMap<String, String> = HashMap::new();
+        for c in saved_contacts {
+            name_map.insert(c.phone_number, c.name);
+        }
+
         let mut inbox: Vec<ContactPreview> = Vec::new();
 
         for number in unique_numbers {
@@ -131,8 +146,12 @@ impl SmsService {
                 .map_err(|e| format!("Erro no banco: {:?}", e))?;
 
             if let Some(msg) = last_msg_option {
+                // Pega o nome do dicionário que criamos lá em cima, se existir
+                let contact_name = name_map.get(&number).cloned();
+
                 inbox.push(ContactPreview {
                     contact_number: number,
+                    name: contact_name, // Injeta o nome aqui
                     last_message_body: msg.body,
                     last_message_date: msg.created_at,
                     direction: msg.direction,
@@ -141,8 +160,36 @@ impl SmsService {
         }
 
         inbox.sort_by(|a, b| b.last_message_date.cmp(&a.last_message_date));
-
         Ok(inbox)
+    }
+
+    pub async fn save_contact_name(&self, phone: &str, name: &str) -> Result<(), String> {
+        let existing = contacts::Entity::find()
+            .filter(contacts::Column::PhoneNumber.eq(phone))
+            .one(&self.db)
+            .await
+            .map_err(|e| format!("Erro no banco: {:?}", e))?;
+
+        if let Some(contact) = existing {
+            let mut active_contact: contacts::ActiveModel = contact.into();
+            active_contact.name = Set(name.to_string());
+            active_contact
+                .update(&self.db)
+                .await
+                .map_err(|e| format!("Erro ao atualizar: {:?}", e))?;
+        } else {
+            let new_contact = contacts::ActiveModel {
+                phone_number: Set(phone.to_string()),
+                name: Set(name.to_string()),
+                ..Default::default()
+            };
+            new_contact
+                .insert(&self.db)
+                .await
+                .map_err(|e| format!("Erro ao inserir: {:?}", e))?;
+        }
+
+        Ok(())
     }
 
     pub async fn get_chat_thread(

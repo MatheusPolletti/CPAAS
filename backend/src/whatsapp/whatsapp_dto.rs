@@ -1,12 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
-pub struct WhatsAppOutbound {
-    pub to: String,
-    pub message: String,
-}
-
-#[derive(Deserialize)]
 pub struct WhatsAppInbound {
     #[serde(rename = "From")]
     pub from: String,
@@ -16,6 +10,11 @@ pub struct WhatsAppInbound {
     pub profile_name: Option<String>,
     #[serde(rename = "MessageSid")]
     pub message_sid: String,
+
+    #[serde(rename = "MediaUrl0")]
+    pub media_url: Option<String>,
+    #[serde(rename = "MediaContentType0")]
+    pub media_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -48,10 +47,18 @@ pub struct WhatsappChatMessageResponse {
     pub body: Option<String>,
     pub status: String,
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
+
+    pub media_url: Option<String>,
+    pub media_type: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct WhatsappChatThreadResponse {
     pub contact: String,
     pub messages: Vec<WhatsappChatMessageResponse>,
+}
+
+#[derive(Deserialize)]
+pub struct MediaQuery {
+    pub url: String,
 }

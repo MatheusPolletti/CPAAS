@@ -16,6 +16,8 @@ pub struct Model {
     pub twilio_sid: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub user_id: Option<i32>,
+    pub media_url: Option<String>,
+    pub media_type: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

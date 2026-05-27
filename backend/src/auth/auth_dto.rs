@@ -24,28 +24,8 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-#[derive(Serialize)]
-pub struct UserResponse {
-    pub id: i32,
-    pub username: String,
-    pub email: String,
-}
-
-#[derive(Serialize)]
-pub struct LoginResponse {
-    pub user: UserResponse,
-    pub access_token: String,
-    pub refresh_token: String,
-}
-
 #[derive(Deserialize)]
 pub struct RefreshRequest {
-    pub refresh_token: String,
-}
-
-#[derive(Serialize)]
-pub struct RefreshResponse {
-    pub access_token: String,
     pub refresh_token: String,
 }
 

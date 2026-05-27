@@ -80,8 +80,10 @@ async fn main() {
 
     let call_service = CallService::new(
         config.twilio_account_sid.clone(),
-        config.twilio_auth_token.clone(),
         config.twilio_phone_number.clone(),
+        config.twilio_api_key_sid.clone(),
+        config.twilio_api_key_secret.clone(),
+        config.twiml_app_sid.clone(),
         _connection,
     );
 

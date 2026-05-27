@@ -1,79 +1,145 @@
-use reqwest::Client;
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, QueryFilter};
+use serde::Serialize;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::call::call_dto::TwilioCallResponse;
 use crate::entities::{calls, calls::Entity as CallEntity};
 use sea_orm::{EntityTrait, QueryOrder};
 
 #[derive(Clone)]
 pub struct CallService {
     twilio_account_sid: String,
-    twilio_auth_token: String,
     twilio_phone_number: String,
+    twilio_api_key_sid: String,
+    twilio_api_key_secret: String,
+    twiml_app_sid: String,
     db: DatabaseConnection,
 }
 
 impl CallService {
-    pub fn new(sid: String, auth: String, phone: String, db: DatabaseConnection) -> Self {
+    pub fn new(
+        sid: String,
+        phone: String,
+        api_key_sid: String,
+        api_key_secret: String,
+        twiml_app_sid: String,
+        db: DatabaseConnection,
+    ) -> Self {
         Self {
             twilio_account_sid: sid,
-            twilio_auth_token: auth,
             twilio_phone_number: phone,
+            twilio_api_key_sid: api_key_sid,
+            twilio_api_key_secret: api_key_secret,
+            twiml_app_sid,
             db,
         }
     }
 
-    pub async fn call(&self, to: &String, user_id: i32) -> Result<(), String> {
-        let client = Client::new();
+    pub fn get_caller_id(&self) -> &str {
+        &self.twilio_phone_number
+    }
 
-        let url = format!(
-            "https://api.twilio.com/2010-04-01/Accounts/{}/Calls.json",
-            self.twilio_account_sid
-        );
+    pub fn generate_voice_token(&self, identity: &str) -> Result<String, String> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "Erro ao gerar timestamp".to_string())?
+            .as_secs() as usize;
 
-        let meu_ngrok_url = "https://dinghy-drainable-headstand.ngrok-free.dev/call/twiml";
+        let exp = now + 3600;
 
-        let params = [
-            ("To", to.as_str()),
-            ("From", self.twilio_phone_number.as_str()),
-            ("Url", meu_ngrok_url),
-        ];
+        let jti = format!("{}-{}", self.twilio_api_key_sid, now);
 
-        let res = client
-            .post(&url)
-            .basic_auth(&self.twilio_account_sid, Some(&self.twilio_auth_token))
-            .form(&params)
-            .send()
+        let grants = TokenGrants {
+            identity: identity.to_string(),
+            voice: VoiceGrant {
+                outgoing: Some(OutgoingGrant {
+                    application_sid: self.twiml_app_sid.clone(),
+                }),
+                incoming: None,
+            },
+        };
+
+        let claims = TwilioClaims {
+            jti,
+            iss: self.twilio_api_key_sid.clone(),
+            sub: self.twilio_account_sid.clone(),
+            exp,
+            grants,
+        };
+
+        let mut header = Header::new(Algorithm::HS256);
+        header.typ = Some("JWT".to_string());
+        header.cty = Some("twilio-fpa;v=1".to_string());
+
+        let clean_secret = self.twilio_api_key_secret.trim();
+
+        encode(
+            &header,
+            &claims,
+            &EncodingKey::from_secret(clean_secret.as_bytes()),
+        )
+        .map_err(|e| format!("Erro ao gerar token: {}", e))
+    }
+
+    pub async fn update_call_status(
+        &self,
+        sid_to_search: &str,
+        status: &str,
+    ) -> Result<(), String> {
+        use sea_orm::ColumnTrait;
+
+        let call_opt = CallEntity::find()
+            .filter(calls::Column::CallSid.eq(sid_to_search))
+            .one(&self.db)
             .await
-            .map_err(|e| format!("Erro de rede: {}", e))?;
+            .map_err(|e| format!("Erro ao buscar ligação no banco: {}", e))?;
 
-        if res.status().is_success() {
-            let twilio_resp: TwilioCallResponse = res
-                .json()
+        if let Some(call) = call_opt {
+            let mut active_call: calls::ActiveModel = call.into();
+            active_call.status = Set(status.to_string());
+
+            active_call
+                .update(&self.db)
                 .await
-                .map_err(|_| "Erro ao ler resposta da Twilio".to_string())?;
-
-            let new_call = calls::ActiveModel {
-                call_sid: Set(twilio_resp.sid),
-                from_number: Set(self.twilio_phone_number.clone()),
-                to_number: Set(to.clone()),
-                direction: Set("outbound".to_string()),
-                status: Set(twilio_resp.status),
-                user_id: Set(Some(user_id)),
-                ..Default::default()
-            };
-
-            // 3. Inserimos no banco
-            new_call
-                .insert(&self.db)
-                .await
-                .map_err(|e| format!("Erro ao salvar no banco: {}", e))?;
-
-            Ok(())
-        } else {
-            let error_text = res.text().await.unwrap_or_default();
-            Err(format!("Erro da API Twilio Voice: {}", error_text))
+                .map_err(|e| format!("Erro ao atualizar status: {}", e))?;
         }
+
+        Ok(())
+    }
+
+    pub async fn register_outbound_webrtc(
+        &self,
+        sid: &str,
+        to: &str,
+        client_from: Option<String>,
+    ) -> Result<(), String> {
+        let mut user_id = None;
+
+        if let Some(from_str) = client_from {
+            if from_str.starts_with("client:user-") {
+                let id_str = from_str.replace("client:user-", "");
+                if let Ok(id) = id_str.parse::<i32>() {
+                    user_id = Some(id);
+                }
+            }
+        }
+
+        let new_call = calls::ActiveModel {
+            call_sid: Set(sid.to_string()),
+            from_number: Set(self.twilio_phone_number.clone()),
+            to_number: Set(to.to_string()),
+            direction: Set("outbound".to_string()),
+            status: Set("in-progress".to_string()),
+            user_id: Set(user_id),
+            ..Default::default()
+        };
+
+        new_call
+            .insert(&self.db)
+            .await
+            .map_err(|e| format!("Erro ao salvar outbound no banco: {}", e))?;
+
+        Ok(())
     }
 
     pub async fn register_inbound(&self, sid: &str, from: &str, to: &str) -> Result<(), String> {
@@ -101,4 +167,38 @@ impl CallService {
             .await
             .map_err(|e| format!("Erro ao buscar o histórico de ligações: {}", e))
     }
+}
+
+#[derive(Serialize)]
+struct VoiceGrant {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outgoing: Option<OutgoingGrant>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    incoming: Option<IncomingGrant>,
+}
+
+#[derive(Serialize)]
+struct OutgoingGrant {
+    application_sid: String,
+}
+
+#[derive(Serialize)]
+struct IncomingGrant {
+    allow: bool,
+}
+
+#[derive(Serialize)]
+struct TokenGrants {
+    identity: String,
+    voice: VoiceGrant,
+}
+
+#[derive(Serialize)]
+struct TwilioClaims {
+    jti: String,
+    iss: String,
+    sub: String,
+    exp: usize,
+    grants: TokenGrants,
 }
