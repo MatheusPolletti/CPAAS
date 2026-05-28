@@ -14,10 +14,28 @@ pub struct Model {
     pub status: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub user_id: Option<i32>,
+    pub contact_id: Option<i32>,
+    pub ticket_id: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::contacts::Entity",
+        from = "Column::ContactId",
+        to = "super::contacts::Column::Id",
+        on_update = "NoAction",
+        on_delete = "SetNull"
+    )]
+    Contacts,
+    #[sea_orm(
+        belongs_to = "super::tickets::Entity",
+        from = "Column::TicketId",
+        to = "super::tickets::Column::Id",
+        on_update = "NoAction",
+        on_delete = "SetNull"
+    )]
+    Tickets,
     #[sea_orm(
         belongs_to = "super::users::Entity",
         from = "Column::UserId",
@@ -26,6 +44,18 @@ pub enum Relation {
         on_delete = "SetNull"
     )]
     Users,
+}
+
+impl Related<super::contacts::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Contacts.def()
+    }
+}
+
+impl Related<super::tickets::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Tickets.def()
+    }
 }
 
 impl Related<super::users::Entity> for Entity {

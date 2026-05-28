@@ -42,9 +42,3 @@ pub struct ChatThreadResponse {
     pub contact: String,
     pub messages: Vec<ChatMessageResponse>,
 }
-
-#[derive(Deserialize)]
-pub struct SaveContactRequest {
-    pub phone_number: String,
-    pub name: String,
-}

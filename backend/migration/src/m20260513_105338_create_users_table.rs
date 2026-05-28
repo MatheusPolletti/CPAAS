@@ -26,17 +26,25 @@ impl MigrationTrait for Migration {
                             .unique_key(),
                     )
                     .col(ColumnDef::new(Users::Password).string().not_null())
+                    .col(ColumnDef::new(Users::RefreshToken).string())
                     .to_owned(),
             )
+            .await
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(Users::Table).to_owned())
             .await
     }
 }
 
 #[derive(DeriveIden)]
-enum Users {
+pub enum Users {
     Table,
     Id,
     Username,
     Email,
     Password,
+    RefreshToken,
 }

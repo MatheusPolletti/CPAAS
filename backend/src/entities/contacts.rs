@@ -10,9 +10,43 @@ pub struct Model {
     #[sea_orm(unique)]
     pub phone_number: String,
     pub name: String,
+    pub company: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(has_many = "super::calls::Entity")]
+    Calls,
+    #[sea_orm(has_many = "super::sms::Entity")]
+    Sms,
+    #[sea_orm(has_many = "super::tickets::Entity")]
+    Tickets,
+    #[sea_orm(has_many = "super::whatsapp::Entity")]
+    Whatsapp,
+}
+
+impl Related<super::calls::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Calls.def()
+    }
+}
+
+impl Related<super::sms::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Sms.def()
+    }
+}
+
+impl Related<super::tickets::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Tickets.def()
+    }
+}
+
+impl Related<super::whatsapp::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Whatsapp.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}

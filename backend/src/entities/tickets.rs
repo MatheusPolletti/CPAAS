@@ -3,25 +3,40 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "users")]
+#[sea_orm(table_name = "tickets")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub username: String,
-    #[sea_orm(unique)]
-    pub email: String,
-    pub password: String,
-    pub refresh_token: Option<String>,
+    pub status: String,
+    pub subject: Option<String>,
+    pub created_at: DateTimeWithTimeZone,
+    pub updated_at: DateTimeWithTimeZone,
+    pub contact_id: i32,
+    pub user_id: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(has_many = "super::calls::Entity")]
     Calls,
+    #[sea_orm(
+        belongs_to = "super::contacts::Entity",
+        from = "Column::ContactId",
+        to = "super::contacts::Column::Id",
+        on_update = "NoAction",
+        on_delete = "Cascade"
+    )]
+    Contacts,
     #[sea_orm(has_many = "super::sms::Entity")]
     Sms,
-    #[sea_orm(has_many = "super::tickets::Entity")]
-    Tickets,
+    #[sea_orm(
+        belongs_to = "super::users::Entity",
+        from = "Column::UserId",
+        to = "super::users::Column::Id",
+        on_update = "NoAction",
+        on_delete = "SetNull"
+    )]
+    Users,
     #[sea_orm(has_many = "super::whatsapp::Entity")]
     Whatsapp,
 }
@@ -32,15 +47,21 @@ impl Related<super::calls::Entity> for Entity {
     }
 }
 
+impl Related<super::contacts::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Contacts.def()
+    }
+}
+
 impl Related<super::sms::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Sms.def()
     }
 }
 
-impl Related<super::tickets::Entity> for Entity {
+impl Related<super::users::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Tickets.def()
+        Relation::Users.def()
     }
 }
 

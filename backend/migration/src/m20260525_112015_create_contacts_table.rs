@@ -22,9 +22,10 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Contacts::PhoneNumber)
                             .string()
                             .not_null()
-                            .unique_key(), // Telefone é único!
+                            .unique_key(),
                     )
                     .col(ColumnDef::new(Contacts::Name).string().not_null())
+                    .col(ColumnDef::new(Contacts::Company).string())
                     .to_owned(),
             )
             .await
@@ -38,9 +39,10 @@ impl MigrationTrait for Migration {
 }
 
 #[derive(DeriveIden)]
-enum Contacts {
+pub enum Contacts {
     Table,
     Id,
     PhoneNumber,
     Name,
+    Company,
 }

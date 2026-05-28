@@ -235,7 +235,7 @@ const SmsPage = () => {
     if (!activeContact || !trimmedName || savingContact) return;
     setSavingContact(true);
     try {
-      await axiosAuth.post("/sms/contact/save", {
+      await axiosAuth.post("/contact/save", {
         phone_number: activeContact,
         name: trimmedName,
       });

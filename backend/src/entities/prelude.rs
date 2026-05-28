@@ -3,5 +3,6 @@
 pub use super::calls::Entity as Calls;
 pub use super::contacts::Entity as Contacts;
 pub use super::sms::Entity as Sms;
+pub use super::tickets::Entity as Tickets;
 pub use super::users::Entity as Users;
 pub use super::whatsapp::Entity as Whatsapp;

@@ -1,6 +1,7 @@
 mod auth;
 mod call;
 mod config;
+mod contact;
 mod database_service;
 mod dto;
 mod sms;
@@ -17,6 +18,7 @@ use tokio::net::TcpListener;
 use crate::{
     auth::{auth_controller, auth_service::AuthService},
     call::{call_controller, call_service::CallService},
+    contact::{contact_controller, contact_service::ContactService},
     database_service::connect_db,
     sms::{sms_controller, sms_service::SmsService},
     whatsapp::{whatsapp_controller, whatsapp_service::WhatsappService},
@@ -30,6 +32,7 @@ pub struct AppState {
     pub sms_service: Arc<SmsService>,
     pub whatsapp_service: Arc<WhatsappService>,
     pub call_service: Arc<CallService>,
+    pub contact_service: Arc<ContactService>,
 }
 
 impl FromRef<AppState> for Arc<AuthService> {
@@ -47,6 +50,12 @@ impl FromRef<AppState> for Arc<SmsService> {
 impl FromRef<AppState> for Arc<WhatsappService> {
     fn from_ref(state: &AppState) -> Self {
         state.whatsapp_service.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<ContactService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.contact_service.clone()
     }
 }
 
@@ -84,14 +93,17 @@ async fn main() {
         config.twilio_api_key_sid.clone(),
         config.twilio_api_key_secret.clone(),
         config.twiml_app_sid.clone(),
-        _connection,
+        _connection.clone(),
     );
+
+    let contact_service = ContactService::new(_connection.clone());
 
     let app_state = AppState {
         auth_service: Arc::new(auth_service),
         sms_service: Arc::new(sms_service),
         whatsapp_service: Arc::new(whatsapp_service),
         call_service: Arc::new(call_service),
+        contact_service: Arc::new(contact_service),
     };
 
     let frontend_origin = config
@@ -109,6 +121,7 @@ async fn main() {
         .nest("/sms", sms_controller::router())
         .nest("/whatsapp", whatsapp_controller::router())
         .nest("/call", call_controller::router())
+        .nest("/contact", contact_controller::router())
         .with_state(app_state)
         .layer(cors);
 

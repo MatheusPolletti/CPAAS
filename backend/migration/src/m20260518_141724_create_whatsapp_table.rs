@@ -25,6 +25,8 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Whatsapp::Status).string().not_null())
                     .col(ColumnDef::new(Whatsapp::SenderName).string())
                     .col(ColumnDef::new(Whatsapp::TwilioSid).string())
+                    .col(ColumnDef::new(Whatsapp::MediaUrl).string())
+                    .col(ColumnDef::new(Whatsapp::MediaType).string())
                     .col(
                         ColumnDef::new(Whatsapp::CreatedAt)
                             .timestamp_with_time_zone()
@@ -37,6 +39,22 @@ impl MigrationTrait for Migration {
                             .name("fk_whatsapp_user_id")
                             .from(Whatsapp::Table, Whatsapp::UserId)
                             .to(Users::Table, Users::Id)
+                            .on_delete(ForeignKeyAction::SetNull),
+                    )
+                    .col(ColumnDef::new(Whatsapp::ContactId).integer())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_whatsapp_contact_id")
+                            .from(Whatsapp::Table, Whatsapp::ContactId)
+                            .to(Contacts::Table, Contacts::Id)
+                            .on_delete(ForeignKeyAction::SetNull),
+                    )
+                    .col(ColumnDef::new(Whatsapp::TicketId).integer())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_whatsapp_ticket_id")
+                            .from(Whatsapp::Table, Whatsapp::TicketId)
+                            .to(Tickets::Table, Tickets::Id)
                             .on_delete(ForeignKeyAction::SetNull),
                     )
                     .to_owned(),
@@ -52,7 +70,7 @@ impl MigrationTrait for Migration {
 }
 
 #[derive(DeriveIden)]
-enum Whatsapp {
+pub enum Whatsapp {
     Table,
     Id,
     Direction,
@@ -62,12 +80,28 @@ enum Whatsapp {
     Status,
     SenderName,
     TwilioSid,
+    MediaUrl,
+    MediaType,
     CreatedAt,
     UserId,
+    ContactId,
+    TicketId,
 }
 
 #[derive(DeriveIden)]
 enum Users {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Contacts {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Tickets {
     Table,
     Id,
 }

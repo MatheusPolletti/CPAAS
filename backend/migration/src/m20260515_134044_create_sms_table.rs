@@ -37,6 +37,22 @@ impl MigrationTrait for Migration {
                             .to(Users::Table, Users::Id)
                             .on_delete(ForeignKeyAction::SetNull),
                     )
+                    .col(ColumnDef::new(Sms::ContactId).integer())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_sms_contact_id")
+                            .from(Sms::Table, Sms::ContactId)
+                            .to(Contacts::Table, Contacts::Id)
+                            .on_delete(ForeignKeyAction::SetNull),
+                    )
+                    .col(ColumnDef::new(Sms::TicketId).integer())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_sms_ticket_id")
+                            .from(Sms::Table, Sms::TicketId)
+                            .to(Tickets::Table, Tickets::Id)
+                            .on_delete(ForeignKeyAction::SetNull),
+                    )
                     .to_owned(),
             )
             .await
@@ -50,7 +66,7 @@ impl MigrationTrait for Migration {
 }
 
 #[derive(DeriveIden)]
-enum Sms {
+pub enum Sms {
     Table,
     Id,
     Direction,
@@ -60,10 +76,24 @@ enum Sms {
     Status,
     CreatedAt,
     UserId,
+    ContactId,
+    TicketId,
 }
 
 #[derive(DeriveIden)]
 enum Users {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Contacts {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Tickets {
     Table,
     Id,
 }

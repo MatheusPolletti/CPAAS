@@ -52,6 +52,7 @@ pub async fn send_whatsapp(
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis();
+
             let saved_filename = format!("{}.{}", timestamp, ext);
             let path = format!("uploads/{}", saved_filename);
 

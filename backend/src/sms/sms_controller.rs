@@ -12,8 +12,8 @@ use crate::{
     dto::PaginationQuery,
     sms::{
         sms_dto::{
-            ChatMessageResponse, ChatThreadResponse, ContactListResponse, SaveContactRequest,
-            SendSmsRequest, TwilioWebhook,
+            ChatMessageResponse, ChatThreadResponse, ContactListResponse, SendSmsRequest,
+            TwilioWebhook,
         },
         sms_service::SmsService,
     },
@@ -100,25 +100,10 @@ pub async fn get_chat_handler(
     }
 }
 
-pub async fn save_contact_handler(
-    _user: AuthenticatedUser,
-    State(sms_service): State<Arc<SmsService>>,
-    Json(payload): Json<SaveContactRequest>,
-) -> impl IntoResponse {
-    match sms_service
-        .save_contact_name(&payload.phone_number, &payload.name)
-        .await
-    {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
-    }
-}
-
 pub fn router() -> Router<crate::AppState> {
     Router::new()
         .route("/send", post(send_sms_handler))
         .route("/webhook", post(receive_sms_handler))
         .route("/contacts", get(list_contacts_handler))
         .route("/chat/{contact_number}", get(get_chat_handler))
-        .route("/contact/save", post(save_contact_handler))
 }
