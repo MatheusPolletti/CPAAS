@@ -21,7 +21,6 @@ use axum::{
     routing::{get, post},
 };
 use reqwest::StatusCode;
-use tower_http::services::ServeDir;
 
 pub async fn send_whatsapp(
     _user: AuthenticatedUser,
@@ -62,7 +61,7 @@ pub async fn send_whatsapp(
                     let _ = std::fs::write(&path, bytes);
 
                     media_url = Some(format!(
-                        "https://dinghy-drainable-headstand.ngrok-free.dev/whatsapp/uploads/{}",
+                        "https://dinghy-drainable-headstand.ngrok-free.dev/uploads/{}",
                         saved_filename
                     ));
                 }
@@ -188,5 +187,4 @@ pub fn router() -> Router<crate::AppState> {
         .route("/chat/{contact_number}", get(list_messages_contact))
         .route("/status", post(receive_whatsapp_status))
         .route("/media", get(get_whatsapp_media))
-        .nest_service("/uploads", ServeDir::new("uploads"))
 }

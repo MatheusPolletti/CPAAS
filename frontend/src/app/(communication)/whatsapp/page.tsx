@@ -556,9 +556,9 @@ const WhatsappPage = () => {
   const resolveMediaUrl = (url: string) => {
     if (url.startsWith("blob:") || url.startsWith("data:")) return url;
 
-    if (url.includes("/whatsapp/uploads/")) {
+    if (url.includes("/uploads/")) {
       const filename = url.split("/").pop();
-      return `${BACKEND_URL}/whatsapp/uploads/${filename}`;
+      return `${BACKEND_URL}/uploads/${filename}`;
     }
 
     if (url.startsWith("http://") || url.startsWith("https://")) return url;

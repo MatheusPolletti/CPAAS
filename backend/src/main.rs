@@ -24,7 +24,7 @@ use crate::{
     whatsapp::{whatsapp_controller, whatsapp_service::WhatsappService},
 };
 use axum::http::{Method, header};
-use tower_http::cors::CorsLayer;
+use tower_http::{cors::CorsLayer, services::ServeDir};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -122,6 +122,7 @@ async fn main() {
         .nest("/whatsapp", whatsapp_controller::router())
         .nest("/call", call_controller::router())
         .nest("/contact", contact_controller::router())
+        .nest_service("/uploads", ServeDir::new("uploads"))
         .with_state(app_state)
         .layer(cors);
 

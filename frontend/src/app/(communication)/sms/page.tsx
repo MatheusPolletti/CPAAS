@@ -68,8 +68,6 @@ const SmsPage = () => {
   const [newContactOpen, setNewContactOpen] = useState(false);
   const [newContactNumber, setNewContactNumber] = useState("");
   const [sending, setSending] = useState(false);
-  const [savingContact, setSavingContact] = useState(false);
-  const [contactName, setContactName] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -149,7 +147,6 @@ const SmsPage = () => {
     setActiveContact(trimmed);
     setNewContactNumber("");
     setNewContactOpen(false);
-    setContactName("");
     setSearch("");
 
     setContacts((prev) => {
@@ -227,34 +224,6 @@ const SmsPage = () => {
       toast.error("Erro ao enviar SMS", { position: "top-center" });
     } finally {
       setSending(false);
-    }
-  };
-
-  const handleSaveContact = async () => {
-    const trimmedName = contactName.trim();
-    if (!activeContact || !trimmedName || savingContact) return;
-    setSavingContact(true);
-    try {
-      await axiosAuth.post("/contact/save", {
-        phone_number: activeContact,
-        name: trimmedName,
-      });
-
-      setContacts((prev) =>
-        prev.map((contact) =>
-          contact.contact_number === activeContact
-            ? { ...contact, name: trimmedName }
-            : contact,
-        ),
-      );
-
-      toast.success("Contato salvo com sucesso", {
-        position: "top-center",
-      });
-    } catch {
-      toast.error("Erro ao salvar contato", { position: "top-center" });
-    } finally {
-      setSavingContact(false);
     }
   };
 
@@ -380,10 +349,7 @@ const SmsPage = () => {
                   <button
                     key={contact.contact_number}
                     type="button"
-                    onClick={() => {
-                      setActiveContact(contact.contact_number);
-                      setContactName(contact.name ?? "");
-                    }}
+                    onClick={() => setActiveContact(contact.contact_number)}
                     className={cn(
                       "flex items-center gap-3 px-4 py-3 text-left transition",
                       isActive ? "bg-blue-50" : "hover:bg-muted/60",
@@ -453,25 +419,6 @@ const SmsPage = () => {
                     <DropdownMenuItem>Apagar conversa</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              </div>
-            </div>
-
-            <div className="border-b bg-background px-5 py-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <Input
-                  value={contactName}
-                  onChange={(event) => setContactName(event.target.value)}
-                  placeholder="Salvar nome do contato"
-                  className="h-9 max-w-xs"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSaveContact}
-                  disabled={!contactName.trim() || savingContact}
-                >
-                  Salvar contato
-                </Button>
               </div>
             </div>
 

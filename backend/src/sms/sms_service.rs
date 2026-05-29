@@ -117,7 +117,6 @@ impl SmsService {
         unique_numbers.extend(outbound_contacts);
         unique_numbers.extend(inbound_contacts);
 
-        // A MÁGICA ACONTECE AQUI: Buscamos todos os nomes de uma vez só!
         let numbers_vec: Vec<String> = unique_numbers.clone().into_iter().collect();
         let saved_contacts = contacts::Entity::find()
             .filter(contacts::Column::PhoneNumber.is_in(numbers_vec))
@@ -125,7 +124,6 @@ impl SmsService {
             .await
             .unwrap_or_default();
 
-        // Criamos um dicionário (Mapa) rápido -> Telefone : Nome
         let mut name_map: HashMap<String, String> = HashMap::new();
         for c in saved_contacts {
             name_map.insert(c.phone_number, c.name);
@@ -146,12 +144,11 @@ impl SmsService {
                 .map_err(|e| format!("Erro no banco: {:?}", e))?;
 
             if let Some(msg) = last_msg_option {
-                // Pega o nome do dicionário que criamos lá em cima, se existir
                 let contact_name = name_map.get(&number).cloned();
 
                 inbox.push(ContactPreview {
                     contact_number: number,
-                    name: contact_name, // Injeta o nome aqui
+                    name: contact_name,
                     last_message_body: msg.body,
                     last_message_date: msg.created_at,
                     direction: msg.direction,

@@ -12,7 +12,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { MessageSquare, MessagesSquare, Phone } from "lucide-react";
+import { MessageSquare, MessagesSquare, Phone, Users } from "lucide-react";
 import { Session } from "next-auth";
 
 const data = {
@@ -21,6 +21,11 @@ const data = {
       name: "SMS",
       url: "/sms",
       icon: <MessageSquare />,
+    },
+    {
+      name: "Contatos",
+      url: "/contacts",
+      icon: <Users />,
     },
     {
       name: "Whatsapp",
