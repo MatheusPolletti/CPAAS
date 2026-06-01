@@ -26,21 +26,6 @@ pub struct WhatsAppStatusWebhook {
 }
 
 #[derive(Serialize)]
-pub struct WhatsappContactPreview {
-    pub contact_number: String,
-    pub profile_name: Option<String>,
-    pub last_message_body: Option<String>,
-    pub last_message_date: chrono::DateTime<chrono::FixedOffset>,
-    pub direction: String,
-    pub status: String,
-}
-
-#[derive(Serialize)]
-pub struct WhatsappContactListResponse {
-    pub contacts: Vec<WhatsappContactPreview>,
-}
-
-#[derive(Serialize)]
 pub struct WhatsappChatMessageResponse {
     pub id: i32,
     pub direction: String,
@@ -61,4 +46,19 @@ pub struct WhatsappChatThreadResponse {
 #[derive(Deserialize)]
 pub struct MediaQuery {
     pub url: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TicketPreview {
+    pub ticket_id: i32,
+    pub contact_number: String,
+    pub profile_name: Option<String>,
+    pub last_message_body: Option<String>,
+    pub last_message_date: String,
+    pub status: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TicketListResponse {
+    pub tickets: Vec<TicketPreview>,
 }

@@ -8,8 +8,8 @@ use crate::{
     dto::PaginationQuery,
     whatsapp::{
         whatsapp_dto::{
-            MediaQuery, WhatsAppInbound, WhatsAppStatusWebhook, WhatsappChatMessageResponse,
-            WhatsappChatThreadResponse, WhatsappContactListResponse,
+            MediaQuery, TicketListResponse, WhatsAppInbound, WhatsAppStatusWebhook,
+            WhatsappChatMessageResponse, WhatsappChatThreadResponse,
         },
         whatsapp_service::WhatsappService,
     },
@@ -31,12 +31,18 @@ pub async fn send_whatsapp(
     let mut message = String::new();
     let mut media_url: Option<String> = None;
     let mut media_type: Option<String> = None;
+    let mut ticket_id: Option<i32> = None;
+    let mut sender_name: Option<String> = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or("").to_string();
 
         if name == "to" {
             to = field.text().await.unwrap_or_default();
+        } else if name == "ticket_id" {
+            ticket_id = field.text().await.unwrap_or_default().parse().ok();
+        } else if name == "sender_name" {
+            sender_name = Some(field.text().await.unwrap_or_default());
         } else if name == "message" {
             message = field.text().await.unwrap_or_default();
         } else if name == "file" {
@@ -70,7 +76,14 @@ pub async fn send_whatsapp(
     }
 
     match whatsapp_service
-        .send_whatsapp(&to, &message, media_url, media_type)
+        .send_whatsapp(
+            &to,
+            &message,
+            media_url,
+            media_type,
+            ticket_id,
+            &sender_name,
+        )
         .await
     {
         Ok(_) => (StatusCode::OK).into_response(),
@@ -114,31 +127,30 @@ pub async fn receive_whatsapp_status(
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
-pub async fn list_contacts(
+
+pub async fn list_active_tickets(
     _user: AuthenticatedUser,
     State(whatsapp_service): State<Arc<WhatsappService>>,
 ) -> impl IntoResponse {
-    match whatsapp_service.get_unique_contacts().await {
-        Ok(contacts) => {
-            let response = WhatsappContactListResponse { contacts };
+    match whatsapp_service.get_active_tickets().await {
+        Ok(tickets) => {
+            let response = TicketListResponse { tickets };
+
             (StatusCode::OK, Json(response)).into_response()
         }
-        Err(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
+        Err(msg) => (StatusCode::INTERNAL_SERVER_ERROR, Json(msg)).into_response(),
     }
 }
 
-pub async fn list_messages_contact(
+pub async fn list_messages_ticket(
     _user: AuthenticatedUser,
     State(whatsapp_service): State<Arc<WhatsappService>>,
-    Path(contact_number): Path<String>,
+    Path(ticket_id): Path<i32>,
     Query(pagination): Query<PaginationQuery>,
 ) -> impl IntoResponse {
     let page = pagination.page.unwrap_or(0);
 
-    match whatsapp_service
-        .get_chat_thread(&contact_number, page)
-        .await
-    {
+    match whatsapp_service.get_chat_thread(ticket_id, page).await {
         Ok(models) => {
             let messages = models
                 .into_iter()
@@ -154,13 +166,13 @@ pub async fn list_messages_contact(
                 .collect();
 
             let response = WhatsappChatThreadResponse {
-                contact: contact_number,
+                contact: ticket_id.to_string(),
                 messages,
             };
 
             (StatusCode::OK, Json(response)).into_response()
         }
-        Err(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
+        Err(msg) => (StatusCode::INTERNAL_SERVER_ERROR, Json(msg)).into_response(),
     }
 }
 
@@ -183,8 +195,8 @@ pub fn router() -> Router<crate::AppState> {
     Router::new()
         .route("/send", post(send_whatsapp))
         .route("/webhook", post(receive_whatsapp_message))
-        .route("/contacts", get(list_contacts))
-        .route("/chat/{contact_number}", get(list_messages_contact))
+        .route("/tickets", get(list_active_tickets))
+        .route("/chat/{ticket_id}", get(list_messages_ticket))
         .route("/status", post(receive_whatsapp_status))
         .route("/media", get(get_whatsapp_media))
 }

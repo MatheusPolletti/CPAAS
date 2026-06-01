@@ -31,17 +31,17 @@ import {
   Square,
 } from "lucide-react";
 
-type ContactPreview = {
+type TicketPreview = {
+  ticket_id: number;
   contact_number: string;
   profile_name: string | null;
   last_message_body: string | null;
   last_message_date: string;
-  direction: string;
   status: string;
 };
 
-type ContactListResponse = {
-  contacts: ContactPreview[];
+type TicketListResponse = {
+  tickets: TicketPreview[];
 };
 
 type ChatMessageResponse = {
@@ -145,14 +145,14 @@ const AuthMedia = ({
 
 const WhatsappPage = () => {
   const axiosAuth = useAxiosAuth();
-  const { status } = useSession();
+  const { data, status } = useSession();
   const { ready, connecting, inCall, startCall, hangup } = useTwilioVoice(
     status === "authenticated",
   );
 
-  const [contacts, setContacts] = useState<ContactPreview[]>([]);
-  const [loadingContacts, setLoadingContacts] = useState(false);
-  const [activeContact, setActiveContact] = useState<string | null>(null);
+  const [tickets, setTickets] = useState<TicketPreview[]>([]);
+  const [loadingTickets, setLoadingTickets] = useState(false);
+  const [activeTicket, setActiveTicket] = useState<number | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
   const [messages, setMessages] = useState<ChatMessageResponse[]>([]);
   const [messageText, setMessageText] = useState("");
@@ -174,58 +174,57 @@ const WhatsappPage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrlsRef = useRef<string[]>([]);
 
-  const activeContactData = useMemo(() => {
-    return (
-      contacts.find((contact) => contact.contact_number === activeContact) ??
-      null
-    );
-  }, [contacts, activeContact]);
+  const activeTicketData = useMemo(() => {
+    return tickets.find((ticket) => ticket.ticket_id === activeTicket) ?? null;
+  }, [tickets, activeTicket]);
 
-  const filteredContacts = useMemo(() => {
+  const filteredTickets = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return contacts;
-    return contacts.filter((contact) => {
-      const body = contact.last_message_body?.toLowerCase() ?? "";
-      const name = contact.profile_name?.toLowerCase() ?? "";
+    if (!term) return tickets;
+    return tickets.filter((ticket) => {
+      const body = ticket.last_message_body?.toLowerCase() ?? "";
+      const name = ticket.profile_name?.toLowerCase() ?? "";
       return (
-        contact.contact_number.toLowerCase().includes(term) ||
+        ticket.contact_number.includes(term) ||
         body.includes(term) ||
         name.includes(term)
       );
     });
-  }, [contacts, search]);
+  }, [tickets, search]);
 
   useEffect(() => {
-    const fetchContacts = async () => {
-      setLoadingContacts(true);
+    const fetchTickets = async () => {
+      setLoadingTickets(true);
       try {
         const response =
-          await axiosAuth.get<ContactListResponse>("/whatsapp/contacts");
-        setContacts(response.data.contacts ?? []);
+          await axiosAuth.get<TicketListResponse>("/whatsapp/tickets");
+
+        setTickets(response.data.tickets ?? []);
       } catch {
-        toast.error("Erro ao buscar contatos do WhatsApp", {
+        toast.error("Erro ao buscar chamados do WhatsApp", {
           position: "top-center",
         });
       } finally {
-        setLoadingContacts(false);
+        setLoadingTickets(false);
       }
     };
 
     if (status === "authenticated") {
-      fetchContacts();
+      fetchTickets();
     }
   }, [status, axiosAuth]);
 
   useEffect(() => {
     const fetchChat = async () => {
-      if (!activeContact) return;
+      if (!activeTicket) return;
       setLoadingChat(true);
       try {
-        const encoded = encodeURIComponent(activeContact);
+        const encoded = encodeURIComponent(activeTicket);
         const response = await axiosAuth.get<ChatThreadResponse>(
           `/whatsapp/chat/${encoded}`,
           { params: { page: 0 } },
         );
+
         setMessages(response.data.messages ?? []);
         setPage(0);
       } catch {
@@ -239,14 +238,14 @@ const WhatsappPage = () => {
     if (status === "authenticated") {
       fetchChat();
     }
-  }, [status, activeContact, axiosAuth]);
+  }, [status, activeTicket, axiosAuth]);
 
   const handleLoadMore = async () => {
-    if (!activeContact || loadingMore) return;
+    if (!activeTicket || loadingMore) return;
     const nextPage = page + 1;
     setLoadingMore(true);
     try {
-      const encoded = encodeURIComponent(activeContact);
+      const encoded = encodeURIComponent(activeTicket);
       const response = await axiosAuth.get<ChatThreadResponse>(
         `/whatsapp/chat/${encoded}`,
         { params: { page: nextPage } },
@@ -274,7 +273,7 @@ const WhatsappPage = () => {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, activeContact]);
+  }, [messages, activeTicket]);
 
   useEffect(() => {
     return () => {
@@ -316,8 +315,7 @@ const WhatsappPage = () => {
 
       mediaRecorder.start();
       setIsRecording(true);
-    } catch (error) {
-      console.error("Erro ao acessar o microfone", error);
+    } catch {
       toast.error(
         "Permissão de microfone negada ou dispositivo não encontrado.",
       );
@@ -335,24 +333,28 @@ const WhatsappPage = () => {
     const trimmed = newContactNumber.trim();
     if (!trimmed) return;
 
-    setActiveContact(trimmed);
     setNewContactNumber("");
     setNewContactOpen(false);
     setSearch("");
 
-    setContacts((prev) => {
-      const existing = prev.find(
-        (contact) => contact.contact_number === trimmed,
-      );
-      if (existing) return prev;
+    setTickets((prev) => {
+      const existing = prev.find((t) => t.contact_number === trimmed);
+
+      if (existing) {
+        setActiveTicket(existing.ticket_id);
+        return prev;
+      }
+
+      setActiveTicket(0);
+
       return [
         {
+          ticket_id: 0,
           contact_number: trimmed,
           profile_name: null,
           last_message_body: null,
           last_message_date: new Date().toISOString(),
-          direction: "outbound",
-          status: "online",
+          status: "open",
         },
         ...prev,
       ];
@@ -361,13 +363,32 @@ const WhatsappPage = () => {
 
   const handleSendMessage = async () => {
     const trimmedBody = messageText.trim();
-    if ((!trimmedBody && !attachment) || !activeContact || sending) return;
+    const targetPhone = activeTicketData?.contact_number;
+
+    if (
+      (!trimmedBody && !attachment) ||
+      !targetPhone ||
+      !activeTicket ||
+      sending
+    )
+      return;
 
     setSending(true);
+
     try {
+      const agentName = data?.user?.name?.split(" ")[0] || "Atendente";
+
+      const finalMessageBody = trimmedBody
+        ? `*Atendente ${agentName}*\n${trimmedBody}`
+        : `*Atendente ${agentName}*`;
+
       const formData = new FormData();
-      formData.append("to", activeContact);
-      formData.append("message", trimmedBody);
+
+      formData.append("to", targetPhone);
+      formData.append("ticket_id", String(activeTicket));
+      formData.append("sender_name", agentName);
+      formData.append("message", finalMessageBody);
+
       if (attachment) {
         formData.append("file", attachment);
       }
@@ -385,7 +406,7 @@ const WhatsappPage = () => {
         {
           id: Date.now(),
           direction: "outbound",
-          body: trimmedBody || null,
+          body: finalMessageBody || null,
           status: "queued",
           created_at: now,
           media_url: previewUrl,
@@ -393,23 +414,23 @@ const WhatsappPage = () => {
         },
       ]);
 
-      setContacts((prev) => {
-        const next = prev.map((contact) => {
-          if (contact.contact_number !== activeContact) return contact;
+      setTickets((prev) => {
+        const next = prev.map((ticket) => {
+          if (ticket.ticket_id !== activeTicket) return ticket;
           return {
-            ...contact,
+            ...ticket,
             last_message_body: messagePreview || null,
             last_message_date: now,
             direction: "outbound",
           };
         });
 
-        const exists = next.some(
-          (contact) => contact.contact_number === activeContact,
-        );
+        const exists = next.some((ticket) => ticket.ticket_id === activeTicket);
+
         if (!exists) {
           next.unshift({
-            contact_number: activeContact,
+            ticket_id: activeTicket,
+            contact_number: String(activeTicket),
             profile_name: null,
             last_message_body: messagePreview || null,
             last_message_date: now,
@@ -429,7 +450,8 @@ const WhatsappPage = () => {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-    } catch {
+    } catch (error) {
+      console.log(error);
       toast.error("Erro ao enviar WhatsApp", { position: "top-center" });
     } finally {
       setSending(false);
@@ -467,7 +489,7 @@ const WhatsappPage = () => {
         hangup();
         return;
       }
-      if (!activeContact) return;
+      if (!activeTicket) return;
       if (!ready) {
         toast.error("Dispositivo de voz nao esta pronto", {
           position: "top-center",
@@ -475,7 +497,7 @@ const WhatsappPage = () => {
         return;
       }
 
-      await startCall(activeContact);
+      await startCall(String(activeTicket));
       toast.success("Ligacao iniciada", { position: "top-center" });
     } catch (error) {
       const message =
@@ -493,7 +515,7 @@ const WhatsappPage = () => {
     });
   };
 
-  const getAvatarFallback = (contact: ContactPreview) => {
+  const getAvatarFallback = (contact: TicketPreview) => {
     if (contact.profile_name) {
       return contact.profile_name.slice(0, 1).toUpperCase();
     }
@@ -634,7 +656,7 @@ const WhatsappPage = () => {
         <Separator />
 
         <div className="flex-1 overflow-y-auto">
-          {loadingContacts && (
+          {loadingTickets && (
             <div className="space-y-3 px-4 py-4">
               {Array.from({ length: 5 }).map((_, index) => (
                 <div key={index} className="flex items-center gap-3">
@@ -648,23 +670,23 @@ const WhatsappPage = () => {
             </div>
           )}
 
-          {!loadingContacts && filteredContacts.length === 0 && (
+          {!loadingTickets && filteredTickets.length === 0 && (
             <div className="px-6 py-10 text-sm text-muted-foreground">
               Nenhuma conversa. Toque em + para iniciar.
             </div>
           )}
 
-          {!loadingContacts && filteredContacts.length > 0 && (
+          {!loadingTickets && filteredTickets.length > 0 && (
             <div className="flex flex-col">
-              {filteredContacts.map((contact) => {
-                const isActive = contact.contact_number === activeContact;
+              {filteredTickets.map((ticket) => {
+                const isActive = ticket.contact_number === String(activeTicket);
                 const displayName =
-                  contact.profile_name || contact.contact_number;
+                  ticket.profile_name || ticket.contact_number;
                 return (
                   <button
-                    key={contact.contact_number}
+                    key={ticket.contact_number}
                     type="button"
-                    onClick={() => setActiveContact(contact.contact_number)}
+                    onClick={() => setActiveTicket(Number(ticket.ticket_id))}
                     className={cn(
                       "flex items-center gap-3 px-4 py-3 text-left transition",
                       isActive ? "bg-emerald-50" : "hover:bg-muted/60",
@@ -672,18 +694,18 @@ const WhatsappPage = () => {
                   >
                     <Avatar className="h-10 w-10">
                       <AvatarFallback>
-                        {getAvatarFallback(contact)}
+                        {getAvatarFallback(ticket)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 overflow-hidden">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold">{displayName}</p>
                         <span className="text-xs text-muted-foreground">
-                          {formatTime(contact.last_message_date)}
+                          {formatTime(ticket.last_message_date)}
                         </span>
                       </div>
                       <p className="truncate text-xs text-muted-foreground">
-                        {contact.last_message_body || "Nova conversa"}
+                        {ticket.last_message_body || "Nova conversa"}
                       </p>
                     </div>
                   </button>
@@ -695,23 +717,24 @@ const WhatsappPage = () => {
       </aside>
 
       <section className="flex flex-1 flex-col bg-emerald-50/70">
-        {activeContact ? (
+        {activeTicket ? (
           <>
             <div className="flex items-center justify-between border-b bg-background px-5 py-4">
               <div className="flex items-center gap-3">
                 <Avatar className="h-10 w-10">
                   <AvatarFallback>
-                    {activeContactData
-                      ? getAvatarFallback(activeContactData)
-                      : activeContact.slice(-2)}
+                    {activeTicketData
+                      ? getAvatarFallback(activeTicketData)
+                      : String(activeTicket).slice(-2)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <p className="text-sm font-semibold">
-                    {activeContactData?.profile_name || activeContact}
+                    {activeTicketData?.profile_name ||
+                      activeTicketData?.contact_number}
                   </p>
                   <p className="text-xs text-emerald-600">
-                    {activeContactData?.contact_number}
+                    {activeTicketData?.contact_number}
                   </p>
                 </div>
               </div>

@@ -1,12 +1,10 @@
-use std::collections::HashSet;
-
 use reqwest::Client;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
     IntoActiveModel, QueryFilter, QueryOrder, QuerySelect,
 };
 
-use crate::{entities::whatsapp, whatsapp::whatsapp_dto::WhatsappContactPreview};
+use crate::{entities::whatsapp, whatsapp::whatsapp_dto::TicketPreview};
 
 #[derive(Clone)]
 pub struct WhatsappService {
@@ -65,6 +63,8 @@ impl WhatsappService {
         message: &String,
         media_url: Option<String>,
         media_type: Option<String>,
+        ticket_id: Option<i32>,
+        sender_name: &Option<String>,
     ) -> Result<(), String> {
         let client = Client::new();
 
@@ -79,7 +79,7 @@ impl WhatsappService {
         let mut params = vec![("To", to_whatsapp), ("From", from_whatsapp)];
 
         if !message.trim().is_empty() {
-            params.push(("Body", message.clone()));
+            params.push(("Body", message.to_string()));
         }
 
         if let Some(ref link) = media_url {
@@ -109,8 +109,9 @@ impl WhatsappService {
                 to_number: Set(to.clone()),
                 body: Set(Some(message.clone())),
                 status: Set("queued".to_string()),
-                sender_name: Set(Some("Você".to_string())),
+                sender_name: Set(sender_name.clone().or(Some("Atendente".to_string()))),
                 twilio_sid: Set(twilio_sid),
+                ticket_id: Set(ticket_id),
                 user_id: Set(None),
                 media_url: Set(media_url),
                 media_type: Set(media_type),
@@ -134,12 +135,70 @@ impl WhatsappService {
         message: &str,
         sender_name: &Option<String>,
         message_sid: &str,
-
         media_url: Option<&str>,
         media_type: Option<&str>,
     ) -> Result<(), String> {
+        use crate::entities::{contacts, tickets, whatsapp};
+
         let clean_from = from.strip_prefix("whatsapp:").unwrap_or(from);
 
+        let contact = contacts::Entity::find()
+            .filter(contacts::Column::PhoneNumber.eq(clean_from))
+            .one(&self.db)
+            .await
+            .map_err(|e| format!("Erro ao buscar contato: {:?}", e))?;
+
+        let contact_id = match contact {
+            Some(c) => c.id,
+            None => {
+                // Se o número não existe, criamos um contato automaticamente
+                // Usamos o nome do perfil do WhatsApp, ou "Desconhecido" se vier vazio
+                let fallback_name = sender_name
+                    .clone()
+                    .unwrap_or_else(|| "Desconhecido".to_string());
+
+                let new_contact = contacts::ActiveModel {
+                    phone_number: Set(clean_from.to_string()),
+                    name: Set(fallback_name),
+                    ..Default::default()
+                };
+
+                let res = new_contact
+                    .insert(&self.db)
+                    .await
+                    .map_err(|e| format!("Erro ao criar contato automático: {:?}", e))?;
+                res.id
+            }
+        };
+
+        // Buscamos se esse cliente já tem um ticket com status "open"
+        let open_ticket = tickets::Entity::find()
+            .filter(tickets::Column::ContactId.eq(contact_id))
+            .filter(tickets::Column::Status.eq("open"))
+            .one(&self.db)
+            .await
+            .map_err(|e| format!("Erro ao buscar ticket: {:?}", e))?;
+
+        let ticket_id = match open_ticket {
+            Some(t) => t.id,
+            None => {
+                // Se não tem ticket aberto, abrimos um novo protocolo!
+                let new_ticket = tickets::ActiveModel {
+                    contact_id: Set(contact_id),
+                    status: Set("open".to_string()),
+                    subject: Set(Some("Atendimento via WhatsApp".to_string())),
+                    ..Default::default()
+                };
+
+                let res = new_ticket
+                    .insert(&self.db)
+                    .await
+                    .map_err(|e| format!("Erro ao abrir novo ticket: {:?}", e))?;
+                res.id
+            }
+        };
+
+        // --- PASSO 3: Salvar a mensagem amarrada a tudo ---
         let incoming_log = whatsapp::ActiveModel {
             direction: Set("inbound".to_string()),
             from_number: Set(clean_from.to_string()),
@@ -149,6 +208,8 @@ impl WhatsappService {
             sender_name: Set(sender_name.clone()),
             twilio_sid: Set(Some(message_sid.to_string())),
             user_id: Set(None),
+            contact_id: Set(Some(contact_id)),
+            ticket_id: Set(Some(ticket_id)),
 
             media_url: Set(media_url.map(|s| s.to_string())),
             media_type: Set(media_type.map(|s| s.to_string())),
@@ -158,7 +219,7 @@ impl WhatsappService {
         incoming_log
             .insert(&self.db)
             .await
-            .map_err(|e| format!("Erro ao salvar no banco: {:?}", e))?;
+            .map_err(|e| format!("Erro ao salvar mensagem no banco: {:?}", e))?;
 
         Ok(())
     }
@@ -184,68 +245,59 @@ impl WhatsappService {
         Ok(())
     }
 
-    pub async fn get_unique_contacts(&self) -> Result<Vec<WhatsappContactPreview>, String> {
-        let outbound_contacts: Vec<String> = whatsapp::Entity::find()
-            .filter(whatsapp::Column::Direction.eq("outbound"))
-            .select_only()
-            .column(whatsapp::Column::ToNumber)
-            .into_tuple()
+    pub async fn get_active_tickets(&self) -> Result<Vec<TicketPreview>, String> {
+        use crate::entities::{contacts, tickets, whatsapp};
+
+        let condition = Condition::any()
+            .add(tickets::Column::Status.eq("open"))
+            .add(tickets::Column::Status.eq("pending"));
+
+        let active_tickets = tickets::Entity::find()
+            .filter(condition)
+            .order_by_desc(tickets::Column::UpdatedAt)
             .all(&self.db)
             .await
-            .map_err(|e| format!("Erro no banco: {:?}", e))?;
+            .map_err(|e| format!("Erro ao buscar tickets: {:?}", e))?;
 
-        let inbound_contacts: Vec<String> = whatsapp::Entity::find()
-            .filter(whatsapp::Column::Direction.eq("inbound"))
-            .select_only()
-            .column(whatsapp::Column::FromNumber)
-            .into_tuple()
-            .all(&self.db)
-            .await
-            .map_err(|e| format!("Erro no banco: {:?}", e))?;
+        let mut inbox: Vec<TicketPreview> = Vec::new();
 
-        let mut unique_numbers = HashSet::new();
-        unique_numbers.extend(outbound_contacts);
-        unique_numbers.extend(inbound_contacts);
+        for ticket in active_tickets {
+            let contact = contacts::Entity::find_by_id(ticket.contact_id)
+                .one(&self.db)
+                .await
+                .map_err(|e| format!("Erro ao buscar contato: {:?}", e))?;
 
-        let mut inbox: Vec<WhatsappContactPreview> = Vec::new();
+            let contact_data = match contact {
+                Some(c) => c,
+                None => continue,
+            };
 
-        for number in unique_numbers {
-            let condition = Condition::any()
-                .add(whatsapp::Column::FromNumber.eq(&number))
-                .add(whatsapp::Column::ToNumber.eq(&number));
-
-            let last_msg_option = whatsapp::Entity::find()
-                .filter(condition)
+            let last_msg = whatsapp::Entity::find()
+                .filter(whatsapp::Column::TicketId.eq(ticket.id))
                 .order_by_desc(whatsapp::Column::CreatedAt)
                 .one(&self.db)
                 .await
-                .map_err(|e| format!("Erro no banco: {:?}", e))?;
+                .map_err(|e| format!("Erro ao buscar mensagens do ticket: {:?}", e))?;
 
-            if let Some(msg) = last_msg_option {
-                let resolved_profile_name = if msg.direction == "inbound" {
-                    msg.sender_name
-                } else {
-                    let last_inbound = whatsapp::Entity::find()
-                        .filter(whatsapp::Column::FromNumber.eq(&number))
-                        .filter(whatsapp::Column::Direction.eq("inbound"))
-                        .filter(whatsapp::Column::SenderName.is_not_null())
-                        .order_by_desc(whatsapp::Column::CreatedAt)
-                        .one(&self.db)
-                        .await
-                        .unwrap_or(None);
+            // Resolvemos o que mostrar no preview (texto ou aviso de mídia)
+            let (body, date) = match last_msg {
+                Some(msg) => {
+                    let text = msg
+                        .body
+                        .unwrap_or_else(|| "Mídia recebida/enviada".to_string());
+                    (Some(text), msg.created_at.to_string())
+                }
+                None => (None, ticket.created_at.to_string()),
+            };
 
-                    last_inbound.and_then(|m| m.sender_name)
-                };
-
-                inbox.push(WhatsappContactPreview {
-                    contact_number: number,
-                    profile_name: resolved_profile_name,
-                    last_message_body: msg.body,
-                    last_message_date: msg.created_at,
-                    direction: msg.direction,
-                    status: msg.status,
-                });
-            }
+            inbox.push(TicketPreview {
+                ticket_id: ticket.id,
+                contact_number: contact_data.phone_number,
+                profile_name: Some(contact_data.name),
+                last_message_body: body,
+                last_message_date: date,
+                status: ticket.status,
+            });
         }
 
         inbox.sort_by(|a, b| b.last_message_date.cmp(&a.last_message_date));
@@ -255,23 +307,20 @@ impl WhatsappService {
 
     pub async fn get_chat_thread(
         &self,
-        contact_number: &str,
+        ticket_id: i32,
         page: u64,
     ) -> Result<Vec<whatsapp::Model>, String> {
-        let condition = Condition::any()
-            .add(whatsapp::Column::FromNumber.eq(contact_number))
-            .add(whatsapp::Column::ToNumber.eq(contact_number));
-
         let page_size = 10;
 
         let mut messages = whatsapp::Entity::find()
-            .filter(condition)
+            // 👇 Filtramos de forma cirúrgica: apenas mensagens DESTE chamado!
+            .filter(whatsapp::Column::TicketId.eq(ticket_id))
             .order_by_desc(whatsapp::Column::CreatedAt)
             .limit(page_size)
             .offset(page * page_size)
             .all(&self.db)
             .await
-            .map_err(|e| format!("Erro no banco: {:?}", e))?;
+            .map_err(|e| format!("Erro no banco ao buscar histórico do ticket: {:?}", e))?;
 
         messages.reverse();
 
